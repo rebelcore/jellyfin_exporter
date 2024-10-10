@@ -25,8 +25,8 @@ var (
 )
 
 func JellyfinInfo(logger *slog.Logger) (string, string, error) {
-	logger.Debug("Jellyfin URL", "Value", jellyfinURL)
-	logger.Debug("Jellyfin Token", "Value", jellyfinToken)
+	logger.Debug("Jellyfin URL", "Value", *jellyfinURL)
+	logger.Debug("Jellyfin Token", "Value", *jellyfinToken)
 
 	return *jellyfinURL, *jellyfinToken, nil
 }
