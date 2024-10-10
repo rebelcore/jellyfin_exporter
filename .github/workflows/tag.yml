@@ -1,0 +1,42 @@
+---
+name: Create Tag
+
+on:
+  push:
+    branches:
+      - 'main'
+      - 'master'
+
+jobs:
+
+  Tag:
+    name: Tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set tag ENV
+        run: |
+          echo "VERSION=v$(cat VERSION)" >> $GITHUB_ENV
+
+      - name: Setup GIT
+        uses: rebelmediausa/gitconfig@v1
+        with:
+          git_user_name: RebelBot
+          git_user_email: bot@rebelmedia.io
+          git_gpg_key: ${{ secrets.GPG_KEY }}
+          git_gpg_key_id: ${{ secrets.GPG_KEY_ID }}
+
+      - name: Create Tag
+        run: |
+          git tag -s ${{ env.VERSION }} -m "Release $(cat VERSION)"
+          git push --tags
+
+      - name: Run Publish workflow
+        env:
+          GITHUB_TOKEN: ${{ secrets.BOT_TOKEN }}
+        run: |
+          gh workflow run publish.yml --ref ${{ env.VERSION }}

@@ -3,68 +3,31 @@ name: Publish Release
 
 on:
   push:
-    branches:
-      - 'main'
-      - 'master'
+    tags:
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
-
-  Tag:
-    name: Create Tag
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    outputs:
-      VERSION: ${{ steps.tag.outputs.VERSION }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set tag ENV
-        id: tag
-        run: |
-          echo "VERSION=v$(cat VERSION)" >> "$GITHUB_ENV"
-          echo "VERSION=v$(cat VERSION)" >> "$GITHUB_OUTPUT"
-
-      - name: Create Tag
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            github.rest.git.createRef({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: 'refs/tags/${{ env.VERSION }}',
-              sha: context.sha
-            })
 
   Release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs:
-      - 'Tag'
     permissions:
       contents: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: refs/tags/${{ needs.Tag.outputs.VERSION }}
-
       - name: Create release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.Tag.outputs.VERSION }}
+          GITHUB_TOKEN: ${{ secrets.BOT_TOKEN }}
+          TAG: ${{ github.ref_name }}
         run: |
           gh release create "${TAG}" \
               --repo="$GITHUB_REPOSITORY" \
               --title="${TAG#v} / $(date '+%Y-%m-%d')"
 
   Build:
-    name: Build
+    name: Build Release
     runs-on: ubuntu-latest
     needs:
-      - 'Tag'
       - 'Release'
     permissions:
       contents: read
@@ -74,8 +37,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: refs/tags/${{ needs.Tag.outputs.VERSION }}
 
       - name: Get CI Commands
         uses: rebelmediausa/promci@v1
@@ -88,10 +49,9 @@ jobs:
           thread: ${{ matrix.thread }}
 
   Publish:
-    name: Publish
+    name: Publish Release
     runs-on: ubuntu-latest
     needs:
-      - 'Tag'
       - 'Build'
     permissions:
       contents: write
@@ -99,8 +59,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: refs/tags/${{ needs.Tag.outputs.VERSION }}
 
       - name: Get CI Commands
         uses: rebelmediausa/promci@v1
@@ -109,7 +67,6 @@ jobs:
         uses: ./.github/promci/actions/publish_release
         with:
           image_name: jellyfin-exporter
-          image_tag: ${{ needs.Tag.outputs.VERSION }}
           image_arch: linux/amd64,linux/arm64,linux/386,linux/ppc64le,linux/riscv64,linux/s390x
           docker_hub_organization: ${{ secrets.DOCKER_HUB_ORG }}
           docker_hub_login: ${{ secrets.DOCKER_HUB_LOGIN }}

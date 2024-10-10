@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jellyfin-exporter
+  namespace: arr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jellyfin-exporter
+  template:
+    metadata:
+      labels:
+        app: jellyfin-exporter
+    spec:
+      containers:
+        - name: jellyfin-exporter
+          image: rebelcore/jellyfin-exporter:latest
+          args:
+            - "--jellyfin.address=http://jellyfin:8096"
+            - "--jellyfin.token=$(JELLYFIN_TOKEN)"
+            - "--collector.activity"
+          env:
+            - name: JELLYFIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: jellyfin-api-key
+                  key: token
+          ports:
+            - containerPort: 9594
+              name: metrics

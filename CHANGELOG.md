@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.2
+
+* [ENHANCEMENT] Add kubernetes example
+* [CLEANUP] Mods upgrade
 
 ## 1.3.1
 

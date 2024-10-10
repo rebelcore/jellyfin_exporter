@@ -1,9 +1,9 @@
 # Jellyfin exporter
 
-[![Test & Build](https://github.com/rebelmediausa/jellyfin_exporter/actions/workflows/test.yml/badge.svg?branch=master)](https://github.com/rebelmediausa/jellyfin_exporter/actions/workflows/test.yml)
-[![Current Release](https://img.shields.io/github/v/release/rebelmediausa/jellyfin_exporter)](https://github.com/rebelmediausa/jellyfin_exporter/releases/latest)
-[![Docker Pulls](https://img.shields.io/docker/pulls/rebelmediausa/jellyfin-exporter)](https://hub.docker.com/r/rebelmediausa/jellyfin-exporter)
-[![Go Report Card](https://goreportcard.com/badge/github.com/rebelmediausa/jellyfin_exporter)](https://goreportcard.com/report/github.com/rebelmediausa/jellyfin_exporter)
+[![Test & Build](https://github.com/rebelcore/jellyfin_exporter/actions/workflows/test.yml/badge.svg?branch=master)](https://github.com/rebelcore/jellyfin_exporter/actions/workflows/test.yml)
+[![Current Release](https://img.shields.io/github/v/release/rebelcore/jellyfin_exporter)](https://github.com/rebelcore/jellyfin_exporter/releases/latest)
+[![Docker Pulls](https://img.shields.io/docker/pulls/rebelcore/jellyfin-exporter)](https://hub.docker.com/r/rebelcore/jellyfin-exporter)
+[![Go Report Card](https://goreportcard.com/badge/github.com/rebelcore/jellyfin_exporter)](https://goreportcard.com/report/github.com/rebelcore/jellyfin_exporter)
 
 Prometheus exporter for Jellyfin Media System metrics exposed
 in Go with pluggable metric collectors.
@@ -12,7 +12,7 @@ in Go with pluggable metric collectors.
 ## Installation and Usage
 
 If you are new to Prometheus and `jellyfin_exporter` there is
-a [simple step-by-step guide](https://docs.rebelmedia.io/guides/jellyfin/exporter).
+a [simple step-by-step guide](https://docs.rebelcore.org/guides/jellyfin/exporter).
 
 The `jellyfin_exporter` listens on HTTP port 9594 by default.
 See the `--help` output for more options.
@@ -35,7 +35,7 @@ need to set the Jellyfin URL flag to use the docker container hostname.
 ```bash
 docker run -d \
   -p 9594:9594 \
-  rebelmediausa/jellyfin-exporter:latest \
+  rebelcore/jellyfin-exporter:latest \
   --jellyfin.address=http://jellyfin:8096 \
   --jellyfin.token=TOKEN
 ```
@@ -46,7 +46,7 @@ For Docker compose, similar flag changes are needed.
 ---
 services:
   jellyfin_exporter:
-    image: rebelmediausa/jellyfin-exporter:latest
+    image: rebelcore/jellyfin-exporter:latest
     container_name: jellyfin_exporter
     command:
       - '--jellyfin.address=http://jellyfin:8096'
@@ -141,7 +141,7 @@ Prerequisites:
 
 Building:
 
-    git clone https://github.com/rebelmediausa/jellyfin_exporter.git
+    git clone https://github.com/rebelcore/jellyfin_exporter.git
     cd jellyfin_exporter
     make build
     ./jellyfin_exporter <flags>

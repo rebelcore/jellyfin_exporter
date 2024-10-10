@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: jellyfin-exporter
+  namespace: arr
+  labels:
+    app: jellyfin-exporter
+spec:
+  selector:
+    app: jellyfin-exporter
+  ports:
+    - protocol: TCP
+      port: 9594
+      targetPort: 9594
+      name: metrics
+  type: ClusterIP

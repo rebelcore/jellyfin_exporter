@@ -1,2 +1,2 @@
-* Rebel Media <github+jellyfin-exporter@rebelmedia.io> @rebelmediausa
+* Rebel Core <github+jellyfin-exporter@rebelcore.org> @rebelcore
 

@@ -1,7 +1,7 @@
 go:
     version: 1.23
 repository:
-    path: github.com/rebelmediausa/jellyfin_exporter
+    path: github.com/rebelcore/jellyfin_exporter
 build:
     binaries:
         - name: jellyfin_exporter

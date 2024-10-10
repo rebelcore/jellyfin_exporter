@@ -22,8 +22,8 @@ import (
 	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/rebelmediausa/jellyfin_exporter/collector/utils"
-	"github.com/rebelmediausa/jellyfin_exporter/config"
+	"github.com/rebelcore/jellyfin_exporter/collector/utils"
+	"github.com/rebelcore/jellyfin_exporter/config"
 )
 
 type mediaCollector struct {
