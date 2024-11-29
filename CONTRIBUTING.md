@@ -19,7 +19,6 @@ Rebel Media uses GitHub to manage reviews of pull requests.
 
         Signed-off-by: Random J Developer <example@example.com>
 
-
 ## Collector Implementation Guidelines
 
 The Jellyfin Exporter is not a general monitoring agent. Its sole purpose is to
