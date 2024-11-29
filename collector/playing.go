@@ -40,7 +40,7 @@ func NewPlayingCollector(logger *slog.Logger) (Collector, error) {
 	nowPlaying := prometheus.NewDesc(
 		namespace+"_"+subsystem,
 		"Jellyfin current active users.",
-		[]string{"user_id", "username", "type", "title", "series_title", "series_season", "series_episode"}, nil,
+		[]string{"user_id", "username", "device", "type", "title", "series_title", "series_season", "series_episode"}, nil,
 	)
 	return &playingCollector{
 		nowPlaying: nowPlaying,
@@ -87,6 +87,7 @@ func (c *playingCollector) Update(ch chan<- prometheus.Metric) error {
 				1,
 				sessionMap["UserId"].(string),
 				sessionMap["UserName"].(string),
+				sessionMap["DeviceName"].(string),
 				playingType,
 				playingTitle,
 				playingSeriesTitle,
