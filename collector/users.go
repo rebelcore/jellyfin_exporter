@@ -12,7 +12,6 @@
 // limitations under the License.
 
 //go:build !nousers
-// +build !nousers
 
 package collector
 
@@ -34,12 +33,12 @@ type userCollector struct {
 }
 
 type Account struct {
-	Username    string
-	User_ID     string
-	Active      int
-	Admin       int
-	Last_Active string
-	Access      []string
+	Username   string
+	UserID     string
+	Active     int
+	Admin      int
+	LastActive string
+	Access     []string
 }
 
 func init() {
@@ -100,10 +99,10 @@ func getUserAccount(jellyfinURL, jellyfinToken string) []Account {
 		}
 
 		userAccount[index].Username = dataUserMap["Name"].(string)
-		userAccount[index].User_ID = dataUserMap["Id"].(string)
+		userAccount[index].UserID = dataUserMap["Id"].(string)
 		userAccount[index].Active = userActive
 		userAccount[index].Admin = userAdmin
-		userAccount[index].Last_Active = userLastActive
+		userAccount[index].LastActive = userLastActive
 		userAccount[index].Access = userEnabledFolders
 	}
 	return userAccount
@@ -127,10 +126,10 @@ func (c *userCollector) Update(ch chan<- prometheus.Metric) error {
 		ch <- prometheus.MustNewConstMetric(c.userAccount,
 			prometheus.GaugeValue,
 			float64(userMap.Active),
-			userMap.User_ID,
+			userMap.UserID,
 			userMap.Username,
 			strconv.Itoa(userMap.Admin),
-			userMap.Last_Active,
+			userMap.LastActive,
 		)
 	}
 	for _, item := range userActive {

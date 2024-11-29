@@ -12,7 +12,6 @@
 // limitations under the License.
 
 //go:build !nomedia
-// +build !nomedia
 
 package collector
 
