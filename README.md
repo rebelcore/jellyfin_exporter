@@ -8,7 +8,6 @@
 Prometheus exporter for Jellyfin Media System metrics exposed
 in Go with pluggable metric collectors.
 
-
 ## Installation and Usage
 
 If you are new to Prometheus and `jellyfin_exporter` there is
@@ -18,12 +17,11 @@ The `jellyfin_exporter` listens on HTTP port 9594 by default.
 See the `--help` output for more options.
 
 The flag `--jellyfin.token` is required. You can generate an API
-Key in the Jellyfin admin dashboard. 
+Key in the Jellyfin admin dashboard.
 
 ### Ansible
 
 Coming Soon!
-
 
 ### Docker
 
@@ -56,7 +54,6 @@ services:
     restart: unless-stopped
 ```
 
-
 ## Collectors
 
 There is varying support for collectors.
@@ -68,7 +65,6 @@ by providing a `--no-collector.<name>` flag.
 To enable only some specific collector(s),
 use `--collector.disable-defaults --collector.<name> ...`.
 
-
 ### Enabled by default
 
 | Name    | Description                                        |
@@ -78,12 +74,12 @@ use `--collector.disable-defaults --collector.<name> ...`.
 | system  | Exposes if the Jellyfin server is online or not.   |
 | users   | Exposes users and if they are currently connected. |
 
-
 ### Disabled by default
 
 `jellyfin_exporter` also implements a number of collectors that
-are disabled by default.  Reasons for this vary by collector,
+are disabled by default. Reasons for this vary by collector,
 and may include:
+
 * Plugin Required
 
 You can enable additional collectors as desired by adding them
@@ -131,7 +127,6 @@ the [scrape config](https://prometheus.io/docs/prometheus/latest/configuration/c
 This can be useful for having different Prometheus servers collect
 specific metrics from nodes.
 
-
 ## Development building and running
 
 Prerequisites:
@@ -150,11 +145,9 @@ To see all available configuration flags:
 
     ./jellyfin_exporter --help
 
-
 ## Running tests
 
     make test
-
 
 ## TLS endpoint
 
@@ -166,4 +159,6 @@ The exporter supports TLS via a new web configuration file.
 ./jellyfin_exporter --web.config.file=web-config.yml
 ```
 
-See the [exporter-toolkit web-configuration](https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-configuration.md) for more details.
+See
+the [exporter-toolkit web-configuration](https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-configuration.md)
+for more details.

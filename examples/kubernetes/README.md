@@ -1,6 +1,8 @@
 # Kubernetes Deployment
 
-In case you have deployed your `jellyfin` in a kubernetes environment, the exporter can be installed as either a standalone deployment, or an extra container in your `jellyfin` deployment. This documentation provides an example of standalone exporter, using `serviceMonitor` from the `kube-prometheus-stack`:
+In case you have deployed your `jellyfin` in a kubernetes environment, the exporter can be installed as either a
+standalone deployment, or an extra container in your `jellyfin` deployment. This documentation provides an example of
+standalone exporter, using `serviceMonitor` from the `kube-prometheus-stack`:
 
 ```yaml
 apiVersion: apps/v1
@@ -79,5 +81,6 @@ spec:
     - port: metrics
       interval: 15s
 ```
+
 ```
 ```
