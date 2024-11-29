@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.3
+
+* [ENHANCEMENT] Add device name to now playing records
+* [CLEANUP] Mods upgrade
+
 ## 1.3.2
 
 * [ENHANCEMENT] Add kubernetes example
