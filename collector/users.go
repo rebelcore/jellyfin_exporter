@@ -135,6 +135,12 @@ func (c *userCollector) Update(ch chan<- prometheus.Metric) error {
 	for _, item := range userActive {
 		userMap := item.(map[string]interface{})
 		c.logger.Debug("Jellyfin user account active", "Value", userMap["UserName"].(string))
+
+		remoteEndPoint, ok := userMap["RemoteEndPoint"].(string)
+		if !ok {
+			remoteEndPoint = ""
+		}
+
 		ch <- prometheus.MustNewConstMetric(c.userActive,
 			prometheus.GaugeValue,
 			1,
@@ -143,7 +149,7 @@ func (c *userCollector) Update(ch chan<- prometheus.Metric) error {
 			userMap["Client"].(string),
 			userMap["ApplicationVersion"].(string),
 			userMap["DeviceName"].(string),
-			userMap["RemoteEndPoint"].(string),
+			remoteEndPoint,
 		)
 	}
 

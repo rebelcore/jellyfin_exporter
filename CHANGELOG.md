@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.4
+* [BUG FIX] Return nil when user ip now present
+* [BUG FIX] Only include season and episode info if found
+
 ## 1.3.3
 
 * [ENHANCEMENT] Add device name to now playing records
