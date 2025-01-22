@@ -74,7 +74,11 @@ func (c *playingCollector) Update(ch chan<- prometheus.Metric) error {
 			playingTitle = nowPlayingMap["Name"].(string)
 			if nowPlayingMap["SeriesName"] != nil {
 				playingSeriesTitle = nowPlayingMap["SeriesName"].(string)
+			}
+			if nowPlayingMap["ParentIndexNumber"] != nil {
 				playingSeriesSeason = "S" + strconv.Itoa(int(nowPlayingMap["ParentIndexNumber"].(float64)))
+			}
+			if nowPlayingMap["ParentIndexNumber"] != nil {
 				playingSeriesEpisode = "E" + strconv.Itoa(int(nowPlayingMap["IndexNumber"].(float64)))
 			}
 		}
