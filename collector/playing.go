@@ -65,9 +65,13 @@ func (c *playingCollector) Update(ch chan<- prometheus.Metric) error {
 		playingSeriesTitle := ""
 		playingSeriesSeason := ""
 		playingSeriesEpisode := ""
+		playingState := float64(1)
 
 		if playStateMap["PlayMethod"] != nil {
 			playMethod = strings.ToLower(playStateMap["PlayMethod"].(string))
+		}
+		if playStateMap["IsPaused"].(bool) {
+			playingState = float64(0)
 		}
 		if sessionMap["NowPlayingItem"] != nil {
 			nowPlayingMap := sessionMap["NowPlayingItem"].(map[string]interface{})
@@ -88,7 +92,7 @@ func (c *playingCollector) Update(ch chan<- prometheus.Metric) error {
 			ch <- prometheus.MustNewConstMetric(
 				c.nowPlaying,
 				prometheus.GaugeValue,
-				1,
+				playingState,
 				sessionMap["UserId"].(string),
 				sessionMap["UserName"].(string),
 				sessionMap["DeviceName"].(string),
