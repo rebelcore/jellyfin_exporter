@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.5
+* [ENHANCEMENT] Expose the type of stream (direct or transcoded) #33
+* [ENHANCEMENT] Playback state #34
+* [CLEANUP] Mods & docker alpine upgrade
+
 ## 1.3.4
 * [BUG FIX] Return nil when user ip now present
 * [BUG FIX] Only include season and episode info if found

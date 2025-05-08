@@ -54,6 +54,9 @@ services:
     restart: unless-stopped
 ```
 
+## Grafana Dashboard
+Refer to [this repository](https://github.com/rebelcore/jellyfin_grafana) to check out the official dashboard for the exporter.
+
 ## Collectors
 
 There is varying support for collectors.

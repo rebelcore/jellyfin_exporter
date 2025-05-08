@@ -1,34 +1,47 @@
+version: "2"
 linters:
   enable:
     - depguard
     - misspell
     - revive
   disable:
-    - deadcode
     - unused
-    - structcheck
-    - varcheck
-
-issues:
-  exclude-rules:
-    - path: _test.go
-      linters:
-        - errcheck
-
-linters-settings:
-  depguard:
+  settings:
+    depguard:
+      rules:
+        no_exec_policy:
+          files:
+            - '!$test'
+          deny:
+            - pkg: os/exec
+              desc: Using os/exec to run sub processes it not allowed by policy
+    errcheck:
+      exclude-functions:
+        - (net/http.ResponseWriter).Write
+    revive:
+      rules:
+        - name: unused-parameter
+          severity: warning
+          disabled: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
-      no_exec_policy:
-        files:
-          - "!$test"
-        deny:
-          - pkg: "os/exec"
-            desc: "Using os/exec to run sub processes it not allowed by policy"
-  errcheck:
-    exclude-functions:
-      - (net/http.ResponseWriter).Write
-  revive:
-    rules:
-      - name: unused-parameter
-        severity: warning
-        disabled: true
+      - linters:
+          - errcheck
+        path: _test.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
