@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rebelcore/jellyfin_exporter/collector/utils"
