@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rebelcore/jellyfin_exporter/collector/utils"
@@ -39,7 +40,7 @@ func NewPlayingCollector(logger *slog.Logger) (Collector, error) {
 	nowPlaying := prometheus.NewDesc(
 		namespace+"_"+subsystem,
 		"Jellyfin current active users.",
-		[]string{"user_id", "username", "device", "type", "title", "series_title", "series_season", "series_episode"}, nil,
+		[]string{"user_id", "username", "device", "type", "title", "series_title", "series_season", "series_episode", "method"}, nil,
 	)
 	return &playingCollector{
 		nowPlaying: nowPlaying,
@@ -64,9 +65,13 @@ func (c *playingCollector) Update(ch chan<- prometheus.Metric) error {
 		playingSeriesTitle := ""
 		playingSeriesSeason := ""
 		playingSeriesEpisode := ""
+		playingState := float64(1)
 
 		if playStateMap["PlayMethod"] != nil {
-			playMethod = playStateMap["PlayMethod"].(string)
+			playMethod = strings.ToLower(playStateMap["PlayMethod"].(string))
+		}
+		if playStateMap["IsPaused"].(bool) {
+			playingState = float64(0)
 		}
 		if sessionMap["NowPlayingItem"] != nil {
 			nowPlayingMap := sessionMap["NowPlayingItem"].(map[string]interface{})
@@ -87,7 +92,7 @@ func (c *playingCollector) Update(ch chan<- prometheus.Metric) error {
 			ch <- prometheus.MustNewConstMetric(
 				c.nowPlaying,
 				prometheus.GaugeValue,
-				1,
+				playingState,
 				sessionMap["UserId"].(string),
 				sessionMap["UserName"].(string),
 				sessionMap["DeviceName"].(string),
@@ -96,6 +101,7 @@ func (c *playingCollector) Update(ch chan<- prometheus.Metric) error {
 				playingSeriesTitle,
 				playingSeriesSeason,
 				playingSeriesEpisode,
+				playMethod,
 			)
 		}
 	}
