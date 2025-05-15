@@ -60,8 +60,10 @@ func (c *activityCollector) Update(ch chan<- prometheus.Metric) error {
 
 	jellyfinAPIURL := fmt.Sprintf("%s/user_usage_stats/user_activity?days=%s", jellyfinURL, *jellyfinReportDays)
 	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	data := rawData.([]interface{})
-
+	data, ok := rawData.([]interface{})
+	if !ok {
+		c.logger.Error("unexpected response from Jellyfin API")
+	}
 	for _, item := range data {
 		activityMap, ok := item.(map[string]interface{})
 		if !ok {

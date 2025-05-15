@@ -16,6 +16,7 @@
 package collector
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -64,10 +65,13 @@ func NewUsersCollector(logger *slog.Logger) (Collector, error) {
 	}, nil
 }
 
-func getUserAccount(jellyfinURL, jellyfinToken string) []Account {
+func getUserAccount(jellyfinURL, jellyfinToken string) ([]Account, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/Users", jellyfinURL)
 	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	data := rawData.([]interface{})
+	data, ok := rawData.([]interface{})
+	if !ok {
+		return []Account{}, errors.New("unexpected response from Jellyfin API")
+	}
 
 	userAccount := make([]Account, len(data))
 
@@ -105,21 +109,30 @@ func getUserAccount(jellyfinURL, jellyfinToken string) []Account {
 		userAccount[index].LastActive = userLastActive
 		userAccount[index].Access = userEnabledFolders
 	}
-	return userAccount
+	return userAccount, nil
 }
 
-func getUserActive(jellyfinURL, jellyfinToken string) []interface{} {
+func getUserActive(jellyfinURL, jellyfinToken string) ([]interface{}, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/Sessions", jellyfinURL)
 	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	data := rawData.([]interface{})
-	return data
+	data, ok := rawData.([]interface{})
+	if !ok {
+		return nil, errors.New("unexpected response from Jellyfin API")
+	}
+	return data, nil
 }
 
 func (c *userCollector) Update(ch chan<- prometheus.Metric) error {
 	jellyfinURL, jellyfinToken, nil := config.JellyfinInfo(c.logger)
 
-	userAccounts := getUserAccount(jellyfinURL, jellyfinToken)
-	userActive := getUserActive(jellyfinURL, jellyfinToken)
+	userAccounts, err := getUserAccount(jellyfinURL, jellyfinToken)
+	if !errors.Is(err, nil) {
+		c.logger.Error(err.Error())
+	}
+	userActive, err := getUserActive(jellyfinURL, jellyfinToken)
+	if !errors.Is(err, nil) {
+		c.logger.Error(err.Error())
+	}
 	for user := range userAccounts {
 		userMap := userAccounts[user]
 		c.logger.Debug("Jellyfin user account", "Value", userMap.Username)
