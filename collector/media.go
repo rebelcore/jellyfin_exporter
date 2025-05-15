@@ -54,7 +54,10 @@ func (c *mediaCollector) Update(ch chan<- prometheus.Metric) error {
 
 	jellyfinAPIURL := fmt.Sprintf("%s/Items/Counts", jellyfinURL)
 	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	data := rawData.(map[string]interface{})
+	data, ok := rawData.(map[string]interface{})
+	if !ok {
+		c.logger.Error("unexpected response from Jellyfin API")
+	}
 	for name, count := range data {
 		itemName := strings.ReplaceAll(name, "Count", "")
 		itemCount := count.(float64)
