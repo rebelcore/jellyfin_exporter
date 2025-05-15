@@ -53,7 +53,10 @@ func (c *playingCollector) Update(ch chan<- prometheus.Metric) error {
 
 	jellyfinAPIURL := fmt.Sprintf("%s/Sessions?IsPlaying=true", jellyfinURL)
 	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	data := rawData.([]interface{})
+	data, ok := rawData.([]interface{})
+	if !ok {
+		c.logger.Error("Unexpected response from Jellyfin API")
+	}
 
 	for _, item := range data {
 		sessionMap := item.(map[string]interface{})
