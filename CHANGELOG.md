@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.3.6
+* [ENHANCEMENT] Improve error handling
+
 ## 1.3.5
 * [ENHANCEMENT] Expose the type of stream (direct or transcoded) #33
 * [ENHANCEMENT] Playback state #34
