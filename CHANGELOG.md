@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.7
+* [ENHANCEMENT] Improve user collection
+* [CLEANUP] Mods upgrade
+
 ## 1.3.6
 * [ENHANCEMENT] Improve error handling
 
