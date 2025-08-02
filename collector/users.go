@@ -16,21 +16,38 @@
 package collector
 
 import (
-	"errors"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strconv"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/rebelcore/jellyfin_exporter/collector/utils"
 	"github.com/rebelcore/jellyfin_exporter/config"
 )
 
-type userCollector struct {
-	userAccount *prometheus.Desc
-	userActive  *prometheus.Desc
-	logger      *slog.Logger
+type UserPolicy struct {
+	IsDisabled      bool     `json:"IsDisabled"`
+	IsAdministrator bool     `json:"IsAdministrator"`
+	EnabledFolders  []string `json:"EnabledFolders"`
+}
+
+type JellyfinUser struct {
+	Name             string     `json:"Name"`
+	Id               string     `json:"Id"`
+	LastActivityDate string     `json:"LastActivityDate"`
+	Policy           UserPolicy `json:"Policy"`
+}
+
+type JellyfinSession struct {
+	UserId             string `json:"UserId"`
+	UserName           string `json:"UserName"`
+	Client             string `json:"Client"`
+	ApplicationVersion string `json:"ApplicationVersion"`
+	DeviceName         string `json:"DeviceName"`
+	RemoteEndPoint     string `json:"RemoteEndPoint"`
 }
 
 type Account struct {
@@ -40,6 +57,12 @@ type Account struct {
 	Admin      int
 	LastActive string
 	Access     []string
+}
+
+type userCollector struct {
+	userAccount *prometheus.Desc
+	userActive  *prometheus.Desc
+	logger      *slog.Logger
 }
 
 func init() {
@@ -65,76 +88,97 @@ func NewUsersCollector(logger *slog.Logger) (Collector, error) {
 	}, nil
 }
 
+func coerceToJSONBytes(rawData interface{}) ([]byte, error) {
+	switch v := rawData.(type) {
+	case []byte:
+		return v, nil
+	case string:
+		return []byte(v), nil
+	case []interface{}, map[string]interface{}:
+		return json.Marshal(v)
+	default:
+		return nil, fmt.Errorf("unexpected type for rawBody: %T", v)
+	}
+}
+
 func getUserAccount(jellyfinURL, jellyfinToken string) ([]Account, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/Users", jellyfinURL)
 	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	data, ok := rawData.([]interface{})
-	if !ok {
-		return []Account{}, errors.New("unexpected response from Jellyfin API")
+
+	rawBody, err := coerceToJSONBytes(rawData)
+	if err != nil {
+		return nil, err
 	}
 
-	userAccount := make([]Account, len(data))
+	var users []JellyfinUser
+	if err := json.Unmarshal(rawBody, &users); err != nil {
+		return nil, fmt.Errorf("unexpected response from Jellyfin API: %w", err)
+	}
 
-	for index, item := range data {
-		dataUserMap := item.(map[string]interface{})
-		dataPolicyMap := dataUserMap["Policy"].(map[string]interface{})
+	accounts := make([]Account, 0, len(users))
+	for _, u := range users {
 		userLastActive := ""
-
-		if dataUserMap["LastActivityDate"] != nil {
-			t, err := time.Parse(time.RFC3339, dataUserMap["LastActivityDate"].(string))
-			if err != nil {
-				continue
+		if u.LastActivityDate != "" {
+			t, err := time.Parse(time.RFC3339, u.LastActivityDate)
+			if err == nil {
+				userLastActive = strconv.FormatInt(t.Unix(), 10)
 			}
-			userLastActive = strconv.FormatInt(t.Unix(), 10)
 		}
-
 		userActive := 1
-		if dataPolicyMap["IsDisabled"] == true {
+		if u.Policy.IsDisabled {
 			userActive = 0
 		}
 		userAdmin := 0
-		if dataPolicyMap["IsAdministrator"] == true {
+		if u.Policy.IsAdministrator {
 			userAdmin = 1
 		}
 
-		userEnabledFolders := make([]string, len(dataPolicyMap["EnabledFolders"].([]interface{})))
-		for i, item := range dataPolicyMap["EnabledFolders"].([]interface{}) {
-			userEnabledFolders[i] = item.(string)
-		}
-
-		userAccount[index].Username = dataUserMap["Name"].(string)
-		userAccount[index].UserID = dataUserMap["Id"].(string)
-		userAccount[index].Active = userActive
-		userAccount[index].Admin = userAdmin
-		userAccount[index].LastActive = userLastActive
-		userAccount[index].Access = userEnabledFolders
+		accounts = append(accounts, Account{
+			Username:   u.Name,
+			UserID:     u.Id,
+			Active:     userActive,
+			Admin:      userAdmin,
+			LastActive: userLastActive,
+			Access:     u.Policy.EnabledFolders,
+		})
 	}
-	return userAccount, nil
+	return accounts, nil
 }
 
-func getUserActive(jellyfinURL, jellyfinToken string) ([]interface{}, error) {
+func getUserActive(jellyfinURL, jellyfinToken string) ([]JellyfinSession, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/Sessions", jellyfinURL)
 	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	data, ok := rawData.([]interface{})
-	if !ok {
-		return nil, errors.New("unexpected response from Jellyfin API")
+
+	rawBody, err := coerceToJSONBytes(rawData)
+	if err != nil {
+		return nil, err
 	}
-	return data, nil
+
+	var sessions []JellyfinSession
+	if err := json.Unmarshal(rawBody, &sessions); err != nil {
+		return nil, fmt.Errorf("unexpected response from Jellyfin API: %w", err)
+	}
+	return sessions, nil
 }
 
 func (c *userCollector) Update(ch chan<- prometheus.Metric) error {
-	jellyfinURL, jellyfinToken, nil := config.JellyfinInfo(c.logger)
+	jellyfinURL, jellyfinToken, err := config.JellyfinInfo(c.logger)
+	if err != nil {
+		c.logger.Error("Failed to get Jellyfin config", "error", err)
+		return err
+	}
 
 	userAccounts, err := getUserAccount(jellyfinURL, jellyfinToken)
-	if !errors.Is(err, nil) {
-		c.logger.Error(err.Error())
+	if err != nil {
+		c.logger.Error("Failed to get user accounts", "error", err)
 	}
+
 	userActive, err := getUserActive(jellyfinURL, jellyfinToken)
-	if !errors.Is(err, nil) {
-		c.logger.Error(err.Error())
+	if err != nil {
+		c.logger.Error("Failed to get user sessions", "error", err)
 	}
-	for user := range userAccounts {
-		userMap := userAccounts[user]
+
+	for _, userMap := range userAccounts {
 		c.logger.Debug("Jellyfin user account", "Value", userMap.Username)
 		ch <- prometheus.MustNewConstMetric(c.userAccount,
 			prometheus.GaugeValue,
@@ -145,23 +189,19 @@ func (c *userCollector) Update(ch chan<- prometheus.Metric) error {
 			userMap.LastActive,
 		)
 	}
-	for _, item := range userActive {
-		userMap := item.(map[string]interface{})
-		c.logger.Debug("Jellyfin user account active", "Value", userMap["UserName"].(string))
 
-		remoteEndPoint, ok := userMap["RemoteEndPoint"].(string)
-		if !ok {
-			remoteEndPoint = ""
-		}
+	for _, session := range userActive {
+		c.logger.Debug("Jellyfin user account active", "Value", session.UserName)
+		remoteEndPoint := session.RemoteEndPoint
 
 		ch <- prometheus.MustNewConstMetric(c.userActive,
 			prometheus.GaugeValue,
 			1,
-			userMap["UserId"].(string),
-			userMap["UserName"].(string),
-			userMap["Client"].(string),
-			userMap["ApplicationVersion"].(string),
-			userMap["DeviceName"].(string),
+			session.UserId,
+			session.UserName,
+			session.Client,
+			session.ApplicationVersion,
+			session.DeviceName,
 			remoteEndPoint,
 		)
 	}
