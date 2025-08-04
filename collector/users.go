@@ -41,7 +41,7 @@ type JellyfinUser struct {
 	Policy           UserPolicy `json:"Policy"`
 }
 
-type JellyfinSession struct {
+type JellyfinSessionUser struct {
 	UserId             string `json:"UserId"`
 	UserName           string `json:"UserName"`
 	Client             string `json:"Client"`
@@ -88,24 +88,11 @@ func NewUsersCollector(logger *slog.Logger) (Collector, error) {
 	}, nil
 }
 
-func coerceToJSONBytes(rawData interface{}) ([]byte, error) {
-	switch v := rawData.(type) {
-	case []byte:
-		return v, nil
-	case string:
-		return []byte(v), nil
-	case []interface{}, map[string]interface{}:
-		return json.Marshal(v)
-	default:
-		return nil, fmt.Errorf("unexpected type for rawBody: %T", v)
-	}
-}
-
 func getUserAccount(jellyfinURL, jellyfinToken string) ([]Account, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/Users", jellyfinURL)
 	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
 
-	rawBody, err := coerceToJSONBytes(rawData)
+	rawBody, err := utils.CoerceToJSONBytes(rawData)
 	if err != nil {
 		return nil, err
 	}
@@ -145,16 +132,16 @@ func getUserAccount(jellyfinURL, jellyfinToken string) ([]Account, error) {
 	return accounts, nil
 }
 
-func getUserActive(jellyfinURL, jellyfinToken string) ([]JellyfinSession, error) {
+func getUserActive(jellyfinURL, jellyfinToken string) ([]JellyfinSessionUser, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/Sessions", jellyfinURL)
 	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
 
-	rawBody, err := coerceToJSONBytes(rawData)
+	rawBody, err := utils.CoerceToJSONBytes(rawData)
 	if err != nil {
 		return nil, err
 	}
 
-	var sessions []JellyfinSession
+	var sessions []JellyfinSessionUser
 	if err := json.Unmarshal(rawBody, &sessions); err != nil {
 		return nil, fmt.Errorf("unexpected response from Jellyfin API: %w", err)
 	}

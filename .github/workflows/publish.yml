@@ -33,7 +33,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        thread: [ 0, 1, 2 ]
+        thread: [ 0, 1, 2, 3, 4, 5 ]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -45,7 +45,7 @@ jobs:
         uses: ./.github/promci/actions/build
         with:
           promu_codesign_binary: jellyfin_exporter
-          parallelism: 3
+          parallelism: 6
           thread: ${{ matrix.thread }}
 
   Publish:

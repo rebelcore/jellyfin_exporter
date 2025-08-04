@@ -16,11 +16,13 @@
 package collector
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/rebelcore/jellyfin_exporter/collector/utils"
 	"github.com/rebelcore/jellyfin_exporter/config"
 )
@@ -37,9 +39,7 @@ func init() {
 func NewMediaCollector(logger *slog.Logger) (Collector, error) {
 	const subsystem = "media"
 	mediaItems := prometheus.NewDesc(
-		prometheus.BuildFQName(
-			namespace, subsystem, "count",
-		),
+		prometheus.BuildFQName(namespace, subsystem, "count"),
 		"Total media items.",
 		[]string{"type"}, nil,
 	)
@@ -49,26 +49,40 @@ func NewMediaCollector(logger *slog.Logger) (Collector, error) {
 	}, nil
 }
 
-func (c *mediaCollector) Update(ch chan<- prometheus.Metric) error {
-	jellyfinURL, jellyfinToken, nil := config.JellyfinInfo(c.logger)
-
+func getMediaCounts(jellyfinURL, jellyfinToken string) (map[string]float64, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/Items/Counts", jellyfinURL)
 	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	data, ok := rawData.(map[string]interface{})
-	if !ok {
-		c.logger.Error("unexpected response from Jellyfin API")
+	rawBody, err := utils.CoerceToJSONBytes(rawData)
+	if err != nil {
+		return nil, err
 	}
-	for name, count := range data {
+	var counts map[string]float64
+	if err := json.Unmarshal(rawBody, &counts); err != nil {
+		return nil, fmt.Errorf("unexpected response from Jellyfin API: %w", err)
+	}
+	return counts, nil
+}
+
+func (c *mediaCollector) Update(ch chan<- prometheus.Metric) error {
+	jellyfinURL, jellyfinToken, err := config.JellyfinInfo(c.logger)
+	if err != nil {
+		c.logger.Error("Failed to get Jellyfin config", "error", err)
+		return err
+	}
+	counts, err := getMediaCounts(jellyfinURL, jellyfinToken)
+	if err != nil {
+		c.logger.Error("Failed to get media counts", "error", err)
+		return err
+	}
+	for name, count := range counts {
 		itemName := strings.ReplaceAll(name, "Count", "")
-		itemCount := count.(float64)
-		c.logger.Debug("Jellyfin Media System Total", itemName, itemCount)
+		c.logger.Debug("Jellyfin Media System Total", itemName, count)
 		ch <- prometheus.MustNewConstMetric(
 			c.mediaItems,
 			prometheus.CounterValue,
-			itemCount,
+			count,
 			itemName,
 		)
 	}
-
 	return nil
 }
