@@ -62,7 +62,7 @@ func newHandler(includeExporterMetrics bool, maxRequests int, logger *slog.Logge
 		)
 	}
 	if innerHandler, err := h.innerHandler(); err != nil {
-		h.logger.Error("Couldn't create metrics handler: %s", err)
+		h.logger.Error("Couldn't create metrics handler", "err", err)
 		return nil
 	} else {
 		h.unfilteredHandler = innerHandler
