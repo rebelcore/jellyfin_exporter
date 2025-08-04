@@ -16,15 +16,49 @@
 package collector
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/rebelcore/jellyfin_exporter/collector/utils"
 	"github.com/rebelcore/jellyfin_exporter/config"
 )
+
+type PlayState struct {
+	PositionTicks       int64  `json:"PositionTicks"`
+	CanSeek             bool   `json:"CanSeek"`
+	IsPaused            bool   `json:"IsPaused"`
+	IsMuted             bool   `json:"IsMuted"`
+	AudioStreamIndex    int    `json:"AudioStreamIndex"`
+	SubtitleStreamIndex int    `json:"SubtitleStreamIndex"`
+	MediaSourceId       string `json:"MediaSourceId"`
+	PlayMethod          string `json:"PlayMethod"`
+	RepeatMode          string `json:"RepeatMode"`
+	PlaybackOrder       string `json:"PlaybackOrder"`
+}
+
+type NowPlayingItem struct {
+	Name        string `json:"Name"`
+	Type        string `json:"Type"`
+	SeriesName  string `json:"SeriesName,omitempty"`
+	ParentIndex int    `json:"ParentIndexNumber,omitempty"`
+	IndexNumber int    `json:"IndexNumber,omitempty"`
+}
+
+type JellyfinSession struct {
+	PlayState          *PlayState      `json:"PlayState"`
+	UserId             string          `json:"UserId"`
+	UserName           string          `json:"UserName"`
+	DeviceName         string          `json:"DeviceName"`
+	Client             string          `json:"Client"`
+	ApplicationVersion string          `json:"ApplicationVersion"`
+	RemoteEndPoint     string          `json:"RemoteEndPoint"`
+	LastActivityDate   string          `json:"LastActivityDate"`
+	NowPlayingItem     *NowPlayingItem `json:"NowPlayingItem"`
+}
 
 type playingCollector struct {
 	nowPlaying *prometheus.Desc
@@ -38,9 +72,11 @@ func init() {
 func NewPlayingCollector(logger *slog.Logger) (Collector, error) {
 	const subsystem = "now_playing"
 	nowPlaying := prometheus.NewDesc(
-		namespace+"_"+subsystem,
-		"Jellyfin current active users.",
-		[]string{"user_id", "username", "device", "type", "title", "series_title", "series_season", "series_episode", "method"}, nil,
+		prometheus.BuildFQName(namespace, subsystem, "state"),
+		"Jellyfin currently playing sessions.",
+		[]string{
+			"user_id", "username", "device", "type", "title", "series_title", "series_season", "series_episode", "method",
+		}, nil,
 	)
 	return &playingCollector{
 		nowPlaying: nowPlaying,
@@ -48,66 +84,72 @@ func NewPlayingCollector(logger *slog.Logger) (Collector, error) {
 	}, nil
 }
 
-func (c *playingCollector) Update(ch chan<- prometheus.Metric) error {
-	jellyfinURL, jellyfinToken, nil := config.JellyfinInfo(c.logger)
-
+func getNowPlayingSessions(jellyfinURL, jellyfinToken string) ([]JellyfinSession, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/Sessions?IsPlaying=true", jellyfinURL)
 	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	data, ok := rawData.([]interface{})
-	if !ok {
-		c.logger.Error("Unexpected response from Jellyfin API")
+	rawBody, err := utils.CoerceToJSONBytes(rawData)
+	if err != nil {
+		return nil, err
 	}
+	var sessions []JellyfinSession
+	if err := json.Unmarshal(rawBody, &sessions); err != nil {
+		return nil, fmt.Errorf("unexpected response from Jellyfin API: %w", err)
+	}
+	return sessions, nil
+}
 
-	for _, item := range data {
-		sessionMap := item.(map[string]interface{})
-		playStateMap := sessionMap["PlayState"].(map[string]interface{})
-
+func (c *playingCollector) Update(ch chan<- prometheus.Metric) error {
+	jellyfinURL, jellyfinToken, err := config.JellyfinInfo(c.logger)
+	if err != nil {
+		c.logger.Error("Failed to get Jellyfin config", "error", err)
+		return err
+	}
+	sessions, err := getNowPlayingSessions(jellyfinURL, jellyfinToken)
+	if err != nil {
+		c.logger.Error("Failed to get sessions", "error", err)
+		return err
+	}
+	for _, session := range sessions {
+		state := 1.0
 		playMethod := ""
-		playingType := ""
-		playingTitle := ""
-		playingSeriesTitle := ""
-		playingSeriesSeason := ""
-		playingSeriesEpisode := ""
-		playingState := float64(1)
+		mediaType := ""
+		title := ""
+		seriesTitle := ""
+		season := ""
+		episode := ""
 
-		if playStateMap["PlayMethod"] != nil {
-			playMethod = strings.ToLower(playStateMap["PlayMethod"].(string))
-		}
-		if playStateMap["IsPaused"].(bool) {
-			playingState = float64(0)
-		}
-		if sessionMap["NowPlayingItem"] != nil {
-			nowPlayingMap := sessionMap["NowPlayingItem"].(map[string]interface{})
-			playingType = nowPlayingMap["Type"].(string)
-			playingTitle = nowPlayingMap["Name"].(string)
-			if nowPlayingMap["SeriesName"] != nil {
-				playingSeriesTitle = nowPlayingMap["SeriesName"].(string)
+		if session.PlayState != nil {
+			if session.PlayState.IsPaused {
+				state = 0.0
 			}
-			if nowPlayingMap["ParentIndexNumber"] != nil {
-				playingSeriesSeason = "S" + strconv.Itoa(int(nowPlayingMap["ParentIndexNumber"].(float64)))
+			playMethod = strings.ToLower(session.PlayState.PlayMethod)
+		}
+		if session.NowPlayingItem != nil {
+			mediaType = session.NowPlayingItem.Type
+			title = session.NowPlayingItem.Name
+			seriesTitle = session.NowPlayingItem.SeriesName
+			if session.NowPlayingItem.ParentIndex > 0 {
+				season = fmt.Sprintf("S%d", session.NowPlayingItem.ParentIndex)
 			}
-			if nowPlayingMap["ParentIndexNumber"] != nil {
-				playingSeriesEpisode = "E" + strconv.Itoa(int(nowPlayingMap["IndexNumber"].(float64)))
+			if session.NowPlayingItem.IndexNumber > 0 {
+				episode = fmt.Sprintf("E%d", session.NowPlayingItem.IndexNumber)
 			}
 		}
-		if playMethod != "" {
-			c.logger.Debug("Jellyfin Now Playing", "Value", playingTitle+" - "+sessionMap["UserName"].(string))
-			ch <- prometheus.MustNewConstMetric(
-				c.nowPlaying,
-				prometheus.GaugeValue,
-				playingState,
-				sessionMap["UserId"].(string),
-				sessionMap["UserName"].(string),
-				sessionMap["DeviceName"].(string),
-				playingType,
-				playingTitle,
-				playingSeriesTitle,
-				playingSeriesSeason,
-				playingSeriesEpisode,
-				playMethod,
-			)
-		}
+		c.logger.Debug("Jellyfin Now Playing", "User", session.UserName, "Title", title)
+		ch <- prometheus.MustNewConstMetric(
+			c.nowPlaying,
+			prometheus.GaugeValue,
+			state,
+			session.UserId,
+			session.UserName,
+			session.DeviceName,
+			mediaType,
+			title,
+			seriesTitle,
+			season,
+			episode,
+			playMethod,
+		)
 	}
-
 	return nil
 }

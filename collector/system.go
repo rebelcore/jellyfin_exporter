@@ -20,6 +20,7 @@ import (
 	"log/slog"
 
 	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/rebelcore/jellyfin_exporter/collector/utils"
 	"github.com/rebelcore/jellyfin_exporter/config"
 )

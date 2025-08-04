@@ -35,6 +35,7 @@ import (
 	"github.com/prometheus/common/version"
 	"github.com/prometheus/exporter-toolkit/web"
 	"github.com/prometheus/exporter-toolkit/web/kingpinflag"
+
 	"github.com/rebelcore/jellyfin_exporter/collector"
 )
 
@@ -61,7 +62,8 @@ func newHandler(includeExporterMetrics bool, maxRequests int, logger *slog.Logge
 		)
 	}
 	if innerHandler, err := h.innerHandler(); err != nil {
-		panic(fmt.Sprintf("Couldn't create metrics handler: %s", err))
+		h.logger.Error("Couldn't create metrics handler", "err", err)
+		return nil
 	} else {
 		h.unfilteredHandler = innerHandler
 	}

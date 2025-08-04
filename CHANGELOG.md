@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.3.8
+* [ENHANCEMENT] Improve all collectors to work better with the jellyfin api
+
 ## 1.3.7
 * [ENHANCEMENT] Improve user collection
 * [CLEANUP] Mods upgrade
