@@ -33,7 +33,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        thread: [ 0, 1, 2 ]
+        thread: [ 0, 1, 2, 3, 4, 5 ]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
