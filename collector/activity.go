@@ -16,20 +16,34 @@
 package collector
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/rebelcore/jellyfin_exporter/collector/utils"
 	"github.com/rebelcore/jellyfin_exporter/config"
 )
 
 var (
 	jellyfinReportDays = kingpin.Flag("collector.activity.days", "Jellyfin Playback Reporting search in days (Default to 100 Years).").Default("36525").String()
-	activityCount      float64
 )
+
+type JellyfinUserActivity struct {
+	LatestDate    string  `json:"latest_date"`
+	UserID        string  `json:"user_id"`
+	TotalCount    float64 `json:"total_count"`
+	TotalTime     float64 `json:"total_time"`
+	ItemName      string  `json:"item_name"`
+	ClientName    string  `json:"client_name"`
+	UserName      string  `json:"user_name"`
+	HasImage      bool    `json:"has_image"`
+	LastSeen      string  `json:"last_seen"`
+	TotalPlayTime string  `json:"total_play_time"`
+}
 
 type activityCollector struct {
 	activityReport *prometheus.Desc
@@ -43,11 +57,14 @@ func init() {
 func NewActivityCollector(logger *slog.Logger) (Collector, error) {
 	const subsystem = "activity"
 	activityReport := prometheus.NewDesc(
-		prometheus.BuildFQName(
-			namespace, subsystem, "count",
-		),
+		prometheus.BuildFQName(namespace, subsystem, "count"),
 		"Playback Reporting activity.",
-		[]string{"user_id", "username", "last_seen", "total_time"}, nil,
+		[]string{
+			"user_id",
+			"username",
+			"last_seen",
+			"total_play_time",
+		}, nil,
 	)
 	return &activityCollector{
 		activityReport: activityReport,
@@ -55,31 +72,42 @@ func NewActivityCollector(logger *slog.Logger) (Collector, error) {
 	}, nil
 }
 
-func (c *activityCollector) Update(ch chan<- prometheus.Metric) error {
-	jellyfinURL, jellyfinToken, nil := config.JellyfinInfo(c.logger)
-
-	jellyfinAPIURL := fmt.Sprintf("%s/user_usage_stats/user_activity?days=%s", jellyfinURL, *jellyfinReportDays)
+func getUserActivity(jellyfinURL, jellyfinToken, days string) ([]JellyfinUserActivity, error) {
+	jellyfinAPIURL := fmt.Sprintf("%s/user_usage_stats/user_activity?days=%s", jellyfinURL, days)
 	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	data, ok := rawData.([]interface{})
-	if !ok {
-		c.logger.Error("unexpected response from Jellyfin API")
+	rawBody, err := utils.CoerceToJSONBytes(rawData)
+	if err != nil {
+		return nil, err
 	}
-	for _, item := range data {
-		activityMap, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		activityCount = activityMap["total_count"].(float64)
-		c.logger.Debug("Jellyfin Playback Reporting for", "User", activityMap["user_name"].(string))
-		ch <- prometheus.MustNewConstMetric(c.activityReport,
+	var activityList []JellyfinUserActivity
+	if err := json.Unmarshal(rawBody, &activityList); err != nil {
+		return nil, fmt.Errorf("unexpected response from Jellyfin API: %w", err)
+	}
+	return activityList, nil
+}
+
+func (c *activityCollector) Update(ch chan<- prometheus.Metric) error {
+	jellyfinURL, jellyfinToken, err := config.JellyfinInfo(c.logger)
+	if err != nil {
+		c.logger.Error("Failed to get Jellyfin config", "error", err)
+		return err
+	}
+	activityList, err := getUserActivity(jellyfinURL, jellyfinToken, *jellyfinReportDays)
+	if err != nil {
+		c.logger.Error("Failed to get user activity", "error", err)
+		return err
+	}
+	for _, activity := range activityList {
+		c.logger.Debug("Jellyfin Playback Reporting for", "User", activity.UserName, "Title", activity.ItemName)
+		ch <- prometheus.MustNewConstMetric(
+			c.activityReport,
 			prometheus.CounterValue,
-			activityCount,
-			activityMap["user_id"].(string),
-			activityMap["user_name"].(string),
-			strings.TrimSpace(activityMap["last_seen"].(string)),
-			strings.TrimSpace(activityMap["total_play_time"].(string)),
+			activity.TotalCount,
+			activity.UserID,
+			activity.UserName,
+			strings.TrimSpace(activity.LastSeen),
+			strings.TrimSpace(activity.TotalPlayTime),
 		)
 	}
-
 	return nil
 }
