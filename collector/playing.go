@@ -85,7 +85,7 @@ func NewPlayingCollector(logger *slog.Logger) (Collector, error) {
 }
 
 func getNowPlayingSessions(jellyfinURL, jellyfinToken string) ([]JellyfinSession, error) {
-	jellyfinAPIURL := fmt.Sprintf("%s/Sessions?IsPlaying=true", jellyfinURL)
+	jellyfinAPIURL := fmt.Sprintf("%s/Sessions?activeWithinSeconds=60&IsPlaying=true", jellyfinURL)
 	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
 	rawBody, err := utils.CoerceToJSONBytes(rawData)
 	if err != nil {

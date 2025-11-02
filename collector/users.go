@@ -133,7 +133,7 @@ func getUserAccount(jellyfinURL, jellyfinToken string) ([]Account, error) {
 }
 
 func getUserActive(jellyfinURL, jellyfinToken string) ([]JellyfinSessionUser, error) {
-	jellyfinAPIURL := fmt.Sprintf("%s/Sessions", jellyfinURL)
+	jellyfinAPIURL := fmt.Sprintf("%s/Sessions?activeWithinSeconds=60", jellyfinURL)
 	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
 
 	rawBody, err := utils.CoerceToJSONBytes(rawData)
