@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.3.9
+* [ENHANCEMENT] Add activeWithinSeconds query to session api calls
+
 ## 1.3.8
 * [ENHANCEMENT] Improve all collectors to work better with the jellyfin api
 
