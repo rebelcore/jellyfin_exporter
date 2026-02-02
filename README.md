@@ -19,6 +19,13 @@ See the `--help` output for more options.
 The flag `--jellyfin.token` is required. You can generate an API
 Key in the Jellyfin admin dashboard.
 
+If you want to use ENV based flags you can use the following.
+
+```dotenv
+JELLYFIN_ADDRESS=http://localhost:8096
+JELLYFIN_TOKEN=TOKEN
+```
+
 ### Ansible
 
 Coming Soon!
