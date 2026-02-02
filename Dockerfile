@@ -1,4 +1,4 @@
-FROM alpine:3.21
+FROM alpine:3.23
 
 ARG TARGETARCH
 COPY .build/linux-$TARGETARCH/jellyfin_exporter /bin/jellyfin_exporter
