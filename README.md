@@ -1,6 +1,6 @@
 # Jellyfin exporter
 
-[![Test & Build](https://github.com/rebelcore/jellyfin_exporter/actions/workflows/test.yml/badge.svg?branch=master)](https://github.com/rebelcore/jellyfin_exporter/actions/workflows/test.yml)
+[![Test & Build](https://github.com/rebelcore/jellyfin_exporter/actions/workflows/test.yml/badge.svg?branch=develop)](https://github.com/rebelcore/jellyfin_exporter/actions/workflows/test.yml)
 [![Current Release](https://img.shields.io/github/v/release/rebelcore/jellyfin_exporter)](https://github.com/rebelcore/jellyfin_exporter/releases/latest)
 [![Docker Pulls](https://img.shields.io/docker/pulls/rebelcore/jellyfin-exporter)](https://hub.docker.com/r/rebelcore/jellyfin-exporter)
 [![Go Report Card](https://goreportcard.com/badge/github.com/rebelcore/jellyfin_exporter)](https://goreportcard.com/report/github.com/rebelcore/jellyfin_exporter)
@@ -18,6 +18,13 @@ See the `--help` output for more options.
 
 The flag `--jellyfin.token` is required. You can generate an API
 Key in the Jellyfin admin dashboard.
+
+If you want to use ENV based flags you can use the following.
+
+```dotenv
+JELLYFIN_ADDRESS=http://localhost:8096
+JELLYFIN_TOKEN=TOKEN
+```
 
 ### Ansible
 

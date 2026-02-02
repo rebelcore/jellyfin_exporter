@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.0
+* [ENHANCEMENT] Add env based flags
+* [CLEANUP] Go mods, docker alpine and GitHub automation upgrades
+
 ## 1.3.9
 * [ENHANCEMENT] Add activeWithinSeconds query to session api calls
 
