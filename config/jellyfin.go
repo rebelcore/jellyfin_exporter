@@ -20,8 +20,8 @@ import (
 )
 
 var (
-	jellyfinURL   = kingpin.Flag("jellyfin.address", "Address to use for connecting to Jellyfin").PlaceHolder("http://localhost:8096").Default("http://localhost:8096").String()
-	jellyfinToken = kingpin.Flag("jellyfin.token", "API Token to use for connecting to Jellyfin").Required().PlaceHolder("TOKEN").String()
+	jellyfinURL   = kingpin.Flag("jellyfin.address", "Address to use for connecting to Jellyfin").Envar("JELLYFIN_ADDRESS").PlaceHolder("http://localhost:8096").Default("http://localhost:8096").String()
+	jellyfinToken = kingpin.Flag("jellyfin.token", "API Token to use for connecting to Jellyfin").Envar("JELLYFIN_TOKEN").PlaceHolder("TOKEN").Required().String()
 )
 
 func JellyfinInfo(logger *slog.Logger) (string, string, error) {
