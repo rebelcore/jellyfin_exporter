@@ -17,6 +17,7 @@ package collector
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -90,9 +91,7 @@ func NewUsersCollector(logger *slog.Logger) (Collector, error) {
 
 func getUserAccount(jellyfinURL, jellyfinToken string) ([]Account, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/Users", jellyfinURL)
-	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-
-	rawBody, err := utils.CoerceToJSONBytes(rawData)
+	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
 	if err != nil {
 		return nil, err
 	}
@@ -134,9 +133,7 @@ func getUserAccount(jellyfinURL, jellyfinToken string) ([]Account, error) {
 
 func getUserActive(jellyfinURL, jellyfinToken string) ([]JellyfinSessionUser, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/Sessions?activeWithinSeconds=60", jellyfinURL)
-	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-
-	rawBody, err := utils.CoerceToJSONBytes(rawData)
+	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
 	if err != nil {
 		return nil, err
 	}
@@ -156,42 +153,48 @@ func (c *userCollector) Update(ch chan<- prometheus.Metric) error {
 	}
 
 	userAccounts, err := getUserAccount(jellyfinURL, jellyfinToken)
+	errAccounts := err
 	if err != nil {
 		c.logger.Error("Failed to get user accounts", "error", err)
 	}
 
 	userActive, err := getUserActive(jellyfinURL, jellyfinToken)
+	errActive := err
 	if err != nil {
 		c.logger.Error("Failed to get user sessions", "error", err)
 	}
 
-	for _, userMap := range userAccounts {
-		c.logger.Debug("Jellyfin user account", "Value", userMap.Username)
-		ch <- prometheus.MustNewConstMetric(c.userAccount,
-			prometheus.GaugeValue,
-			float64(userMap.Active),
-			userMap.UserID,
-			userMap.Username,
-			strconv.Itoa(userMap.Admin),
-			userMap.LastActive,
-		)
+	if errAccounts == nil {
+		for _, userMap := range userAccounts {
+			c.logger.Debug("Jellyfin user account", "Value", userMap.Username)
+			ch <- prometheus.MustNewConstMetric(c.userAccount,
+				prometheus.GaugeValue,
+				float64(userMap.Active),
+				userMap.UserID,
+				userMap.Username,
+				strconv.Itoa(userMap.Admin),
+				userMap.LastActive,
+			)
+		}
 	}
 
-	for _, session := range userActive {
-		c.logger.Debug("Jellyfin user account active", "Value", session.UserName)
-		remoteEndPoint := session.RemoteEndPoint
+	if errActive == nil {
+		for _, session := range userActive {
+			c.logger.Debug("Jellyfin user account active", "Value", session.UserName)
+			remoteEndPoint := session.RemoteEndPoint
 
-		ch <- prometheus.MustNewConstMetric(c.userActive,
-			prometheus.GaugeValue,
-			1,
-			session.UserId,
-			session.UserName,
-			session.Client,
-			session.ApplicationVersion,
-			session.DeviceName,
-			remoteEndPoint,
-		)
+			ch <- prometheus.MustNewConstMetric(c.userActive,
+				prometheus.GaugeValue,
+				1,
+				session.UserId,
+				session.UserName,
+				session.Client,
+				session.ApplicationVersion,
+				session.DeviceName,
+				remoteEndPoint,
+			)
+		}
 	}
 
-	return nil
+	return errors.Join(errAccounts, errActive)
 }

@@ -14,39 +14,41 @@
 package utils
 
 import (
-	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
-func GetHTTP(url, token string) interface{} {
-	client := http.Client{Timeout: 5 * time.Second}
+var defaultHTTPClient = &http.Client{Timeout: 5 * time.Second}
+
+func GetHTTP(url, token string) ([]byte, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	req.Header.Set("Authorization", "MediaBrowser Token="+token)
+	req.Header.Set("User-Agent", "jellyfin_exporter")
 
-	resp, err := client.Do(req)
+	resp, err := defaultHTTPClient.Do(req)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-			return
-		}
+	defer func(body io.ReadCloser) {
+		_ = body.Close()
 	}(resp.Body)
-	var result interface{}
 
-	decoder := json.NewDecoder(resp.Body)
-	err = decoder.Decode(&result)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
-	return result
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("unexpected HTTP status %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	return body, nil
 }
