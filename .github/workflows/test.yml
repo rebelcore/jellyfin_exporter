@@ -71,6 +71,9 @@ jobs:
           path: coverage.out
           if-no-files-found: error
 
+      - name: Build
+        run: make build
+
       - name: Remove binary
         run: make remove-binary
 
