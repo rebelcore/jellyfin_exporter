@@ -7,8 +7,6 @@ on:
       - 'main'
       - 'master'
       - 'beta'
-    paths:
-      - 'VERSION'
 
 jobs:
 
