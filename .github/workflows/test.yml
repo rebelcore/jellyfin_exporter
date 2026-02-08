@@ -2,16 +2,22 @@
 name: Test & Build
 
 on:
+  push:
+    branches:
+      - develop
   pull_request:
     branches:
-      - '!main'
-      - '!master'
-      - 'develop'
-jobs:
+      - develop
+      - beta
+  workflow_dispatch:
 
+jobs:
   Test:
-    name: Test
+    name: Test (with coverage)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     container:
       image: quay.io/prometheus/golang-builder:1.25-base
     steps:
@@ -27,8 +33,46 @@ jobs:
       - name: Download Go mods
         run: go mod download
 
-      - name: Run make command
-        run: make
+      - name: Check formatting
+        run: make style
+
+      - name: Check license headers
+        run: make check_license
+
+      - name: Check go.mod/go.sum tidy
+        run: make unused
+
+      - name: Lint
+        run: make lint
+
+      - name: Vet
+        run: make vet
+
+      - name: Run tests with coverage
+        run: |
+          go test -count=1 ./... -race -covermode=atomic -coverpkg=./... -coverprofile=coverage.out
+          go tool cover -func=coverage.out
+
+      - name: Coverage summary
+        env:
+          MIN_COVERAGE: "90.0"
+        run: |
+          total="$(go tool cover -func=coverage.out | tail -n 1 | awk '{print $3}' | sed 's/%//')"
+          echo "Total coverage: ${total}%" >> "$GITHUB_STEP_SUMMARY"
+          awk -v total="$total" -v min="$MIN_COVERAGE" 'BEGIN { exit(total+0 < min+0) }' || {
+            echo "Coverage ${total}% is below minimum ${MIN_COVERAGE}%" >&2
+            exit 1
+          }
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+          if-no-files-found: error
+
+      - name: Build
+        run: make build
 
       - name: Remove binary
         run: make remove-binary
@@ -39,13 +83,13 @@ jobs:
   Build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [ Test ]
+    needs: [Test]
     permissions:
       contents: read
       pull-requests: read
     strategy:
       matrix:
-        thread: [ 0, 1, 2, 3, 4, 5 ]
+        thread: [0, 1, 2, 3, 4, 5]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6

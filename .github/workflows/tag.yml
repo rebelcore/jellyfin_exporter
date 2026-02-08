@@ -6,6 +6,9 @@ on:
     branches:
       - 'main'
       - 'master'
+      - 'beta'
+    paths:
+      - 'VERSION'
 
 jobs:
 
@@ -17,10 +20,30 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set tag ENV
         run: |
-          echo "VERSION=v$(cat VERSION)" >> $GITHUB_ENV
+          if [ "${GITHUB_REF_NAME}" = "beta" ]; then
+            raw_version="$(cat VERSION)"
+            if [[ "${raw_version}" == *"-beta" ]]; then
+              echo "VERSION=v${raw_version}" >> "$GITHUB_ENV"
+            else
+              echo "VERSION=v${raw_version}-beta" >> "$GITHUB_ENV"
+            fi
+          else
+            echo "VERSION=v$(cat VERSION)" >> $GITHUB_ENV
+          fi
+
+      - name: Check if tag already exists
+        id: tagcheck
+        run: |
+          if git rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Setup GIT
         uses: rebelmediausa/gitconfig@v1
@@ -31,11 +54,17 @@ jobs:
           git_gpg_key_id: ${{ secrets.GPG_KEY_ID }}
 
       - name: Create Tag
+        if: steps.tagcheck.outputs.exists != 'true'
         run: |
-          git tag -s ${{ env.VERSION }} -m "Release $(cat VERSION)"
+          if [ "${GITHUB_REF_NAME}" = "beta" ]; then
+            git tag -s "${{ env.VERSION }}" -m "Beta $(cat VERSION)"
+          else
+            git tag -s "${{ env.VERSION }}" -m "Release $(cat VERSION)"
+          fi
           git push --tags
 
       - name: Run Publish workflow
+        if: steps.tagcheck.outputs.exists != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.BOT_TOKEN }}
         run: |
