@@ -14,19 +14,20 @@
 package utils
 
 import (
-	"encoding/json"
-	"fmt"
+	"strings"
 )
 
-func CoerceToJSONBytes(rawData interface{}) ([]byte, error) {
-	switch v := rawData.(type) {
-	case []byte:
-		return v, nil
-	case string:
-		return []byte(v), nil
-	case []interface{}, map[string]interface{}:
-		return json.Marshal(v)
-	default:
-		return nil, fmt.Errorf("unexpected data for api: %T", v)
+func BoolToFloat(v bool) float64 {
+	if v {
+		return 1
 	}
+	return 0
+}
+
+func SystemUpValueFromPing(body []byte) int {
+	s := strings.TrimSpace(string(body))
+	if s == "Jellyfin Server" || s == "\"Jellyfin Server\"" {
+		return 1
+	}
+	return 0
 }

@@ -14,7 +14,9 @@
 package config
 
 import (
+	"errors"
 	"log/slog"
+	"strings"
 
 	"github.com/alecthomas/kingpin/v2"
 )
@@ -26,7 +28,14 @@ var (
 
 func JellyfinInfo(logger *slog.Logger) (string, string, error) {
 	logger.Debug("Jellyfin URL", "Value", *jellyfinURL)
-	logger.Debug("Jellyfin Token", "Value", *jellyfinToken)
+	logger.Debug("Jellyfin token configured", "configured", *jellyfinToken != "")
+
+	if strings.TrimSpace(*jellyfinToken) == "" {
+		return "", "", errors.New("missing jellyfin token")
+	}
+	if strings.TrimSpace(*jellyfinURL) == "" {
+		return "", "", errors.New("missing jellyfin address")
+	}
 
 	return *jellyfinURL, *jellyfinToken, nil
 }
