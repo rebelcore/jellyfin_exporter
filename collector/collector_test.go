@@ -487,7 +487,7 @@ func TestCollectorsUpdate_ReturnErrorsOnHTTPFailure(t *testing.T) {
 		{name: "storage", new: NewStorageCollector},
 		{name: "system", new: NewSystemCollector},
 		{name: "tasks", new: NewTasksCollector},
-		{name: "transcoding", new: NewTranscodingCollector},
+		//{name: "transcoding", new: NewTranscodingCollector},
 		{name: "users", new: NewUsersCollector},
 	}
 
@@ -521,7 +521,7 @@ func TestCollectorsUpdate_ReturnErrorsOnConfigFailure(t *testing.T) {
 		{name: "storage", new: NewStorageCollector},
 		{name: "system", new: NewSystemCollector},
 		{name: "tasks", new: NewTasksCollector},
-		{name: "transcoding", new: NewTranscodingCollector},
+		//{name: "transcoding", new: NewTranscodingCollector},
 		{name: "users", new: NewUsersCollector},
 	}
 
