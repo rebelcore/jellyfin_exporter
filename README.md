@@ -69,11 +69,12 @@ Refer to [this repository](https://github.com/rebelcore/jellyfin_grafana) to che
 There is varying support for collectors.
 The tables below list all existing collectors.
 
-Collectors are enabled by providing a `--collector.<name>` flag.
+Collectors are enabled by providing a `--collector.NAME` flag.
 Collectors that are enabled by default can be disabled
-by providing a `--no-collector.<name>` flag.
+by providing a `--no-collector.NAME` flag.
 To enable only some specific collector(s),
-use `--collector.disable-defaults --collector.<name> ...`.
+use `--collector.disable-defaults --collector.NAME ...`.
+For example, `--collector.media` enables the `media` collector.
 
 ### Enabled by default
 
@@ -125,17 +126,26 @@ by default. This is the recommended way to collect metrics to avoid errors.
 For advanced use the `jellyfin_exporter` can be passed an optional list
 of collectors to filter metrics. The `collect[]` parameter may be used
 multiple times. In Prometheus configuration you can use this syntax under
-the [scrape config](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#<scrape_config>).
+the [scrape config](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#scrape_config).
 
 ```
   params:
     collect[]:
-      - foo
-      - bar
+      - system
+      - media
 ```
 
 This can be useful for having different Prometheus servers collect
 specific metrics from nodes.
+
+You can also exclude collectors with `exclude[]` (do not combine `collect[]` and
+`exclude[]` in the same request).
+
+```
+  params:
+    exclude[]:
+      - playing
+```
 
 ## Development building and running
 
@@ -149,7 +159,7 @@ Building:
     git clone https://github.com/rebelcore/jellyfin_exporter.git
     cd jellyfin_exporter
     make build
-    ./jellyfin_exporter <flags>
+    ./jellyfin_exporter FLAGS
 
 To see all available configuration flags:
 
@@ -158,6 +168,11 @@ To see all available configuration flags:
 ## Running tests
 
     make test
+
+To generate a coverage report:
+
+    go test -count=1 ./... -race -covermode=atomic -coverpkg=./... -coverprofile=coverage.out
+    go tool cover -func=coverage.out
 
 ## TLS endpoint
 
