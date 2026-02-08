@@ -104,11 +104,11 @@ and does not time out. In addition, monitor the
 `scrape_samples_post_metric_relabeling` metric to see the changes
 in cardinality.
 
-| Name     | Description                                             |
-|----------|---------------------------------------------------------|
-| activity | Exposes information from the Playback Reporting plugin. |
-| storage  | Exposes Jellyfin storage free/used bytes (admin-only).  |
-| tasks    | Exposes scheduled task status and last run (admin-only).|
+| Name        | Description                                             |
+|-------------|---------------------------------------------------------|
+| activity    | Exposes information from the Playback Reporting plugin. |
+| storage     | Exposes Jellyfin storage free/used bytes.               |
+| tasks       | Exposes scheduled task status and last run.             |
 
 ### Activity Collector
 
