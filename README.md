@@ -108,6 +108,7 @@ in cardinality.
 |----------|---------------------------------------------------------|
 | activity | Exposes information from the Playback Reporting plugin. |
 | storage  | Exposes Jellyfin storage free/used bytes (admin-only).  |
+| tasks    | Exposes scheduled task status and last run (admin-only).|
 
 ### Activity Collector
 
