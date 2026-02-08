@@ -14,7 +14,6 @@ jobs:
     permissions:
       issues: write
       pull-requests: write
-      actions: write
     steps:
       - name: Check stale Issues
         uses: actions/stale@v10
@@ -43,7 +42,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
-      actions: write
     steps:
       - name: Check stale Pull Request
         uses: actions/stale@v10
