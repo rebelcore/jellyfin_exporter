@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.0-beta
+* [FEATURE] Add `storage` collector (disabled by default)
+* [FEATURE] Add `tasks` collector (disabled by default)
+* [CLEANUP] Major refactor with improved tests, CI, and Go toolchain/modules updates
+
 ## 1.4.0
 * [ENHANCEMENT] Add env based flags
 * [CLEANUP] Go mods, docker alpine and GitHub automation upgrades
