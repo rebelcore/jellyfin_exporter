@@ -34,4 +34,4 @@ jobs:
           destination_container_repo: ${{ env.DOCKER_REPO_NAME }}
           provider: dockerhub
           short_description: ${{ env.DOCKER_REPO_NAME }}
-          readme_file: ''
+          readme_file: 'README.md'
