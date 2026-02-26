@@ -48,21 +48,32 @@ type NowPlayingItem struct {
 	IndexNumber int    `json:"IndexNumber,omitempty"`
 }
 
+type TranscodingInfo struct {
+	Bitrate          int      `json:"Bitrate"`
+	FrameRate        int      `json:"FrameRate"`
+	IsVideoDirect    bool     `json:"IsVideoDirect"`
+	TranscodeReasons []string `json:"TranscodeReasons"`
+}
+
 type JellyfinSession struct {
-	PlayState          *PlayState      `json:"PlayState"`
-	UserId             string          `json:"UserId"`
-	UserName           string          `json:"UserName"`
-	DeviceName         string          `json:"DeviceName"`
-	Client             string          `json:"Client"`
-	ApplicationVersion string          `json:"ApplicationVersion"`
-	RemoteEndPoint     string          `json:"RemoteEndPoint"`
-	LastActivityDate   string          `json:"LastActivityDate"`
-	NowPlayingItem     *NowPlayingItem `json:"NowPlayingItem"`
+	PlayState          *PlayState       `json:"PlayState"`
+	UserId             string           `json:"UserId"`
+	UserName           string           `json:"UserName"`
+	DeviceName         string           `json:"DeviceName"`
+	Client             string           `json:"Client"`
+	ApplicationVersion string           `json:"ApplicationVersion"`
+	RemoteEndPoint     string           `json:"RemoteEndPoint"`
+	LastActivityDate   string           `json:"LastActivityDate"`
+	NowPlayingItem     *NowPlayingItem  `json:"NowPlayingItem"`
+	TranscodingInfo    *TranscodingInfo `json:"TranscodingInfo"`
 }
 
 type playingCollector struct {
-	nowPlaying *prometheus.Desc
-	logger     *slog.Logger
+	nowPlaying         *prometheus.Desc
+	transcodeBitrate   *prometheus.Desc
+	transcodeFramerate *prometheus.Desc
+	transcodeReasons   *prometheus.Desc
+	logger             *slog.Logger
 }
 
 func init() {
@@ -78,9 +89,27 @@ func NewPlayingCollector(logger *slog.Logger) (Collector, error) {
 			"user_id", "username", "device", "type", "title", "series_title", "series_season", "series_episode", "method",
 		}, nil,
 	)
+	transcodeBitrate := prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, subsystem, "transcode_bitrate"),
+		"Bitrate of the transcode if the session is being transcoded.",
+		[]string{"user_id", "username", "device", "title"}, nil,
+	)
+	transcodeFramerate := prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, subsystem, "transcode_framerate"),
+		"Framerate of the transcode if the session is being transcoded.",
+		[]string{"user_id", "username", "device", "title"}, nil,
+	)
+	transcodeReasons := prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, subsystem, "transcode_reasons"),
+		"Reasons for transcoding if the session is being transcoded.",
+		[]string{"user_id", "username", "device", "title", "reason"}, nil,
+	)
 	return &playingCollector{
-		nowPlaying: nowPlaying,
-		logger:     logger,
+		nowPlaying:         nowPlaying,
+		transcodeBitrate:   transcodeBitrate,
+		transcodeFramerate: transcodeFramerate,
+		transcodeReasons:   transcodeReasons,
+		logger:             logger,
 	}, nil
 }
 
@@ -135,6 +164,42 @@ func (c *playingCollector) Update(ch chan<- prometheus.Metric) error {
 				episode = fmt.Sprintf("E%d", session.NowPlayingItem.IndexNumber)
 			}
 		}
+
+		if session.TranscodingInfo != nil {
+			if !session.TranscodingInfo.IsVideoDirect {
+				ch <- prometheus.MustNewConstMetric(
+					c.transcodeBitrate,
+					prometheus.GaugeValue,
+					float64(session.TranscodingInfo.Bitrate),
+					session.UserId,
+					session.UserName,
+					session.DeviceName,
+					title,
+				)
+				ch <- prometheus.MustNewConstMetric(
+					c.transcodeFramerate,
+					prometheus.GaugeValue,
+					float64(session.TranscodingInfo.FrameRate),
+					session.UserId,
+					session.UserName,
+					session.DeviceName,
+					title,
+				)
+			}
+			for _, reason := range session.TranscodingInfo.TranscodeReasons {
+				ch <- prometheus.MustNewConstMetric(
+					c.transcodeReasons,
+					prometheus.GaugeValue,
+					1.0,
+					session.UserId,
+					session.UserName,
+					session.DeviceName,
+					title,
+					reason,
+				)
+			}
+		}
+
 		c.logger.Debug("Jellyfin Now Playing", "User", session.UserName, "Title", title)
 		ch <- prometheus.MustNewConstMetric(
 			c.nowPlaying,
