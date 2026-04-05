@@ -55,9 +55,9 @@ func NewSystemCollector(logger *slog.Logger) (Collector, error) {
 
 	return &systemCollector{
 		systemUp: prometheus.NewDesc(
-			namespace+"_up",
+			prometheus.BuildFQName(namespace, "", "up"),
 			"Jellyfin Media System status.",
-			[]string{}, nil,
+			nil, nil,
 		),
 		info: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subsystem, "info"),
