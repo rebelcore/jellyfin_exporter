@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.5.0
+* [FEATURE] Add `transcoding` collector (disabled by default)
+* [FEATURE] Add `storage` collector (disabled by default)
+* [FEATURE] Add `tasks` collector (disabled by default)
+* [ENHANCEMENT] Add playback position, duration, remaining, and progress metrics to `playing` collector
+* [ENHANCEMENT] Add server info and pending restart metrics to `system` collector
+* [ENHANCEMENT] Add user account details (admin status, last access) and active session info to `users` collector
+* [ENHANCEMENT] Improve error handling across collectors
+* [ENHANCEMENT] Simplify session data sharing between collectors
+* [CLEANUP] Major codebase refactor with consistent coding patterns
+* [CLEANUP] Improved test coverage
+* [CLEANUP] Upgrade Go toolchain and modules
+* [CLEANUP] Improve CI/GitHub workflows
+
 ## 1.4.0
 * [ENHANCEMENT] Add env based flags
 * [CLEANUP] Go mods, docker alpine and GitHub automation upgrades

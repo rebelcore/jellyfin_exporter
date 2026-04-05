@@ -74,8 +74,7 @@ func NewActivityCollector(logger *slog.Logger) (Collector, error) {
 
 func getUserActivity(jellyfinURL, jellyfinToken, days string) ([]JellyfinUserActivity, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/user_usage_stats/user_activity?days=%s", jellyfinURL, days)
-	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	rawBody, err := utils.CoerceToJSONBytes(rawData)
+	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +100,7 @@ func (c *activityCollector) Update(ch chan<- prometheus.Metric) error {
 		c.logger.Debug("Jellyfin Playback Reporting for", "User", activity.UserName, "Title", activity.ItemName)
 		ch <- prometheus.MustNewConstMetric(
 			c.activityReport,
-			prometheus.CounterValue,
+			prometheus.GaugeValue,
 			activity.TotalCount,
 			activity.UserID,
 			activity.UserName,

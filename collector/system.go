@@ -16,6 +16,7 @@
 package collector
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -26,8 +27,23 @@ import (
 )
 
 type systemCollector struct {
-	systemUp *prometheus.Desc
-	logger   *slog.Logger
+	systemUp          *prometheus.Desc
+	info              *prometheus.Desc
+	hasPendingRestart *prometheus.Desc
+	logger            *slog.Logger
+}
+
+type jellyfinSystemInfo struct {
+	ServerName             string `json:"ServerName"`
+	Version                string `json:"Version"`
+	ProductName            string `json:"ProductName"`
+	PackageName            string `json:"PackageName"`
+	ID                     string `json:"Id"`
+	HasPendingRestart      bool   `json:"HasPendingRestart"`
+	IsShuttingDown         bool   `json:"IsShuttingDown"`
+	SupportsLibraryMonitor bool   `json:"SupportsLibraryMonitor"`
+	WebSocketPortNumber    int64  `json:"WebSocketPortNumber"`
+	StartupWizardCompleted *bool  `json:"StartupWizardCompleted"`
 }
 
 func init() {
@@ -35,30 +51,83 @@ func init() {
 }
 
 func NewSystemCollector(logger *slog.Logger) (Collector, error) {
-
 	const subsystem = "system"
-	systemUp := prometheus.NewDesc(
-		namespace+"_up",
-		"Jellyfin Media System status.",
-		[]string{}, nil,
-	)
+
 	return &systemCollector{
-		systemUp: systemUp,
-		logger:   logger,
+		systemUp: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "", "up"),
+			"Jellyfin Media System status.",
+			nil, nil,
+		),
+		info: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subsystem, "info"),
+			"Static Jellyfin server information.",
+			[]string{"server_id", "server_name", "version", "product_name", "package_name"},
+			nil,
+		),
+		hasPendingRestart: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subsystem, "pending_restart"),
+			"Whether the Jellyfin server has a pending restart (1 = yes, 0 = no).",
+			nil,
+			nil,
+		),
+		logger: logger,
 	}, nil
 }
 
-func (c *systemCollector) Update(ch chan<- prometheus.Metric) error {
-	jellyfinURL, jellyfinToken, nil := config.JellyfinInfo(c.logger)
-
+func getSystemPing(jellyfinURL, jellyfinToken string) (float64, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/System/Ping", jellyfinURL)
-	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	systemUpValue := 0
-	if rawData == "Jellyfin Server" {
-		systemUpValue = 1
+	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
+	if err != nil {
+		return 0, err
 	}
-	c.logger.Debug("Jellyfin Media System state", "Up", systemUpValue)
-	ch <- prometheus.MustNewConstMetric(c.systemUp, prometheus.CounterValue, float64(systemUpValue))
+	return float64(utils.SystemUpValueFromPing(rawBody)), nil
+}
+
+func getSystemInfo(jellyfinURL, jellyfinToken string) (*jellyfinSystemInfo, error) {
+	jellyfinAPIURL := fmt.Sprintf("%s/System/Info", jellyfinURL)
+	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
+	if err != nil {
+		return nil, err
+	}
+	var info jellyfinSystemInfo
+	if err := json.Unmarshal(rawBody, &info); err != nil {
+		return nil, fmt.Errorf("unexpected response from Jellyfin API: %w", err)
+	}
+	return &info, nil
+}
+
+func (c *systemCollector) Update(ch chan<- prometheus.Metric) error {
+	jellyfinURL, jellyfinToken, err := config.JellyfinInfo(c.logger)
+	if err != nil {
+		c.logger.Error("Failed to get Jellyfin config", "error", err)
+		return err
+	}
+
+	ping, err := getSystemPing(jellyfinURL, jellyfinToken)
+	if err != nil {
+		c.logger.Error("Failed to get system ping", "error", err)
+		return err
+	}
+
+	info, err := getSystemInfo(jellyfinURL, jellyfinToken)
+	if err != nil {
+		c.logger.Error("Failed to get system info", "error", err)
+		return err
+	}
+
+	ch <- prometheus.MustNewConstMetric(c.systemUp, prometheus.GaugeValue, ping)
+	ch <- prometheus.MustNewConstMetric(
+		c.info,
+		prometheus.GaugeValue,
+		1,
+		info.ID,
+		info.ServerName,
+		info.Version,
+		info.ProductName,
+		info.PackageName,
+	)
+	ch <- prometheus.MustNewConstMetric(c.hasPendingRestart, prometheus.GaugeValue, utils.BoolToFloat(info.HasPendingRestart))
 
 	return nil
 }

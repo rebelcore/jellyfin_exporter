@@ -14,117 +14,503 @@
 package main
 
 import (
-	"fmt"
+	"errors"
 	"io"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"os"
-	"os/exec"
-	"path/filepath"
+	"os/user"
+	"strings"
 	"testing"
-	"time"
+
+	"github.com/alecthomas/kingpin/v2"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/version"
+	"github.com/prometheus/exporter-toolkit/web"
+
+	"github.com/rebelcore/jellyfin_exporter/collector"
 )
 
-var (
-	binary = filepath.Join(os.Getenv("GOPATH"), "bin/jellyfin_exporter")
-)
+const testJellyfinToken = "test-token"
 
-const (
-	address = "localhost:19594"
-)
+var testJellyfinURL string
 
-func TestFileDescriptorLeak(t *testing.T) {
-	if _, err := os.Stat(binary); err != nil {
-		t.Skipf("jellyfin_exporter binary not available, try to run `make build` first: %s", err)
+func TestMain(m *testing.M) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if want, have := "MediaBrowser Token="+testJellyfinToken, r.Header.Get("Authorization"); want != have {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		switch r.URL.Path {
+		case "/System/Ping":
+			_, _ = w.Write([]byte("Jellyfin Server"))
+		case "/System/Info":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"ServerName":"Test Server",
+				"Version":"1.0.0",
+				"ProductName":"Jellyfin",
+				"PackageName":"jellyfin",
+				"Id":"server-1",
+				"HasPendingRestart":true
+			}`))
+		case "/Items/Counts":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"MovieCount":10,"SeriesCount":2}`))
+		case "/Users":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[
+				{"Name":"Alice","Id":"u1","LastActivityDate":"2025-01-01T00:00:00Z","Policy":{"IsDisabled":false,"IsAdministrator":true,"EnabledFolders":["f1"]}}
+			]`))
+		case "/Sessions":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[
+				{
+					"Id":"s1",
+					"UserId":"u1",
+					"UserName":"Alice",
+					"DeviceName":"TV",
+					"Client":"Web",
+					"ApplicationVersion":"1.0",
+					"RemoteEndPoint":"1.2.3.4",
+					"PlayState":{"IsPaused":false,"PlayMethod":"DirectPlay","PositionTicks":50000000},
+					"NowPlayingItem":{"Type":"Movie","Name":"Title","RunTimeTicks":100000000}
+				}
+			]`))
+		default:
+			logger.Error("unexpected mock path", "path", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+
+	testJellyfinURL = srv.URL
+	_, err := kingpin.CommandLine.Parse([]string{
+		"--jellyfin.address", testJellyfinURL,
+		"--jellyfin.token", testJellyfinToken,
+	})
+	if err != nil {
+		logger.Error("failed to parse kingpin flags", "err", err)
+		srv.Close()
+		os.Exit(2)
 	}
 
-	exporter := exec.Command(binary, "--web.listen-address", address)
-	test := func(pid int) error {
-		if err := queryExporter(address); err != nil {
-			return err
-		}
-		for i := 0; i < 5; i++ {
-			if err := queryExporter(address); err != nil {
-				return err
+	code := m.Run()
+	srv.Close()
+	os.Exit(code)
+}
+
+func TestHandler_ServeHTTP_OK(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	prevNewCollector := newJellyfinCollector
+	t.Cleanup(func() { newJellyfinCollector = prevNewCollector })
+
+	for _, includeExporterMetrics := range []bool{false, true} {
+		t.Run("include_exporter_metrics="+strconvBool(includeExporterMetrics), func(t *testing.T) {
+			h, err := newHandler(includeExporterMetrics, 0, logger)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "http://example/metrics", nil)
+			h.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("want status %d, have %d. Body:\n%s", http.StatusOK, rr.Code, rr.Body.String())
+			}
+
+			body := rr.Body.String()
+			if !strings.Contains(body, "jellyfin_up") {
+				t.Fatalf("expected jellyfin_up in response body")
+			}
+			if !strings.Contains(body, "jellyfin_scrape_collector_success") {
+				t.Fatalf("expected scrape metrics in response body")
+			}
+		})
+	}
+}
+
+func TestHandler_ServeHTTP_RejectsCombinedCollectExclude(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	prevNewCollector := newJellyfinCollector
+	t.Cleanup(func() { newJellyfinCollector = prevNewCollector })
+	h, err := newHandler(false, 0, logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://example/metrics?collect[]=system&exclude[]=media", nil)
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want status %d, have %d. Body:\n%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandler_ServeHTTP_MissingCollector(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	prevNewCollector := newJellyfinCollector
+	t.Cleanup(func() { newJellyfinCollector = prevNewCollector })
+	h, err := newHandler(false, 0, logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://example/metrics?collect[]=does_not_exist", nil)
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want status %d, have %d. Body:\n%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandler_ServeHTTP_CollectAndExclude(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	prevNewCollector := newJellyfinCollector
+	t.Cleanup(func() { newJellyfinCollector = prevNewCollector })
+	h, err := newHandler(false, 0, logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	t.Run("collect", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "http://example/metrics?collect[]=system", nil)
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("want status %d, have %d. Body:\n%s", http.StatusOK, rr.Code, rr.Body.String())
+		}
+		if !strings.Contains(rr.Body.String(), "jellyfin_system_info") {
+			t.Fatalf("expected system metrics in response body")
+		}
+	})
+
+	t.Run("exclude", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "http://example/metrics?exclude[]=system", nil)
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("want status %d, have %d. Body:\n%s", http.StatusOK, rr.Code, rr.Body.String())
+		}
+		if strings.Contains(rr.Body.String(), "jellyfin_system_info") {
+			t.Fatalf("did not expect system metrics in response body")
+		}
+	})
+}
+
+func TestNewHandler_InnerHandlerError(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	prev := newJellyfinCollector
+	t.Cleanup(func() { newJellyfinCollector = prev })
+
+	newJellyfinCollector = func(*slog.Logger, ...string) (*collector.JellyfinCollector, error) {
+		return nil, errors.New("boom")
+	}
+
+	if _, err := newHandler(false, 0, logger); err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestNewHandler_RegisterError(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	prev := registerWithRegistry
+	t.Cleanup(func() { registerWithRegistry = prev })
+
+	registerWithRegistry = func(*prometheus.Registry, prometheus.Collector) error {
+		return errors.New("boom")
+	}
+
+	if _, err := newHandler(false, 0, logger); err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestRun_BuildsMuxAndCallsListenAndServe(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	prevListen := listenAndServe
+	prevNewLandingPage := newLandingPage
+	t.Cleanup(func() { listenAndServe = prevListen })
+	t.Cleanup(func() { newLandingPage = prevNewLandingPage })
+
+	called := false
+	listenAndServe = func(server *http.Server, _ *web.FlagConfig, _ *slog.Logger) error {
+		called = true
+
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "http://example/metrics", nil)
+		server.Handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("want status %d, have %d. Body:\n%s", http.StatusOK, rr.Code, rr.Body.String())
+		}
+		if !strings.Contains(rr.Body.String(), "jellyfin_up") {
+			t.Fatalf("expected jellyfin_up in response body")
+		}
+
+		rr = httptest.NewRecorder()
+		req = httptest.NewRequest(http.MethodGet, "http://example/", nil)
+		server.Handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("want status %d, have %d. Body:\n%s", http.StatusOK, rr.Code, rr.Body.String())
+		}
+		if !strings.Contains(rr.Body.String(), "Jellyfin Exporter") {
+			t.Fatalf("expected landing page content")
+		}
+
+		return nil
+	}
+
+	flags := &web.FlagConfig{
+		WebListenAddresses: ptr([]string{":0"}),
+		WebSystemdSocket:   ptr(false),
+		WebConfigFile:      ptr(""),
+	}
+
+	if err := run("/metrics", false, 0, false, 1, flags, logger); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Fatalf("expected listenAndServe to be called")
+	}
+}
+
+func TestRun_MetricsPathRoot(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	prevListen := listenAndServe
+	prevNewLandingPage := newLandingPage
+	t.Cleanup(func() { listenAndServe = prevListen })
+	t.Cleanup(func() { newLandingPage = prevNewLandingPage })
+
+	listenAndServe = func(server *http.Server, _ *web.FlagConfig, _ *slog.Logger) error {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "http://example/", nil)
+		server.Handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("want status %d, have %d. Body:\n%s", http.StatusOK, rr.Code, rr.Body.String())
+		}
+		if !strings.Contains(rr.Body.String(), "jellyfin_up") {
+			t.Fatalf("expected jellyfin_up in response body")
 		}
 		return nil
 	}
 
-	if err := runCommandAndTests(exporter, address, test); err != nil {
-		t.Error(err)
+	flags := &web.FlagConfig{
+		WebListenAddresses: ptr([]string{":0"}),
+		WebSystemdSocket:   ptr(false),
+		WebConfigFile:      ptr(""),
+	}
+
+	if err := run("/", false, 0, false, 1, flags, logger); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestHandlingOfDuplicatedMetrics(t *testing.T) {
-	if _, err := os.Stat(binary); err != nil {
-		t.Skipf("jellyfin_exporter binary not available, try to run `make build` first: %s", err)
+func TestRun_RootUserBranch(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	prevListen := listenAndServe
+	prevCurrentUser := currentUser
+	prevNewLandingPage := newLandingPage
+	t.Cleanup(func() {
+		listenAndServe = prevListen
+		currentUser = prevCurrentUser
+		newLandingPage = prevNewLandingPage
+	})
+
+	currentUser = func() (*user.User, error) {
+		return &user.User{Uid: "0"}, nil
+	}
+	listenAndServe = func(_ *http.Server, _ *web.FlagConfig, _ *slog.Logger) error { return nil }
+
+	flags := &web.FlagConfig{
+		WebListenAddresses: ptr([]string{":0"}),
+		WebSystemdSocket:   ptr(false),
+		WebConfigFile:      ptr(""),
 	}
 
-	dir, err := os.MkdirTemp("", "jellyfin-exporter")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-
-	content := []byte("dummy_metric 1\n")
-	if err := os.WriteFile(filepath.Join(dir, "a.prom"), content, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "b.prom"), content, 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	exporter := exec.Command(binary, "--jellyfin.token=TOKEN", "--web.listen-address", address)
-	test := func(_ int) error {
-		return queryExporter(address)
-	}
-
-	if err := runCommandAndTests(exporter, address, test); err != nil {
-		t.Error(err)
+	if err := run("/metrics", false, 0, false, 1, flags, logger); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func queryExporter(address string) error {
-	resp, err := http.Get(fmt.Sprintf("http://%s/metrics", address))
-	if err != nil {
-		return err
+func TestRun_ListenAndServeError(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	prevListen := listenAndServe
+	prevNewLandingPage := newLandingPage
+	t.Cleanup(func() { listenAndServe = prevListen })
+	t.Cleanup(func() { newLandingPage = prevNewLandingPage })
+
+	listenAndServe = func(_ *http.Server, _ *web.FlagConfig, _ *slog.Logger) error {
+		return errors.New("boom")
 	}
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
+
+	flags := &web.FlagConfig{
+		WebListenAddresses: ptr([]string{":0"}),
+		WebSystemdSocket:   ptr(false),
+		WebConfigFile:      ptr(""),
 	}
-	if err := resp.Body.Close(); err != nil {
-		return err
+
+	if err := run("/metrics", false, 0, false, 1, flags, logger); err == nil {
+		t.Fatalf("expected error")
 	}
-	if want, have := http.StatusOK, resp.StatusCode; want != have {
-		return fmt.Errorf("want /metrics status code %d, have %d. Body:\n%s", want, have, b)
-	}
-	return nil
 }
 
-func runCommandAndTests(cmd *exec.Cmd, address string, fn func(pid int) error) error {
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start command: %s", err)
+func TestRun_NilToolkitFlags(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	if err := run("/metrics", false, 0, false, 1, nil, logger); err == nil {
+		t.Fatalf("expected error")
 	}
-	time.Sleep(50 * time.Millisecond)
-	for i := 0; i < 10; i++ {
-		if err := queryExporter(address); err == nil {
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-		if cmd.Process == nil || i == 9 {
-			return fmt.Errorf("can't start command")
-		}
+}
+
+func TestRun_DisableDefaultCollectorsBranch(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	prevListen := listenAndServe
+	prevNewLandingPage := newLandingPage
+	t.Cleanup(func() { listenAndServe = prevListen })
+	t.Cleanup(func() { newLandingPage = prevNewLandingPage })
+	listenAndServe = func(_ *http.Server, _ *web.FlagConfig, _ *slog.Logger) error { return nil }
+
+	flags := &web.FlagConfig{
+		WebListenAddresses: ptr([]string{":0"}),
+		WebSystemdSocket:   ptr(false),
+		WebConfigFile:      ptr(""),
 	}
 
-	errc := make(chan error)
-	go func(pid int) {
-		errc <- fn(pid)
-	}(cmd.Process.Pid)
-
-	err := <-errc
-	if cmd.Process != nil {
-		cmd.Process.Kill()
+	if err := run("/metrics", false, 0, true, 1, flags, logger); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	return err
+}
+
+func TestRun_NewHandlerError(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	prevListen := listenAndServe
+	prevNewCollector := newJellyfinCollector
+	t.Cleanup(func() {
+		listenAndServe = prevListen
+		newJellyfinCollector = prevNewCollector
+	})
+
+	listenAndServe = func(*http.Server, *web.FlagConfig, *slog.Logger) error {
+		t.Fatalf("listenAndServe should not be called")
+		return nil
+	}
+	newJellyfinCollector = func(*slog.Logger, ...string) (*collector.JellyfinCollector, error) {
+		return nil, errors.New("boom")
+	}
+
+	flags := &web.FlagConfig{
+		WebListenAddresses: ptr([]string{":0"}),
+		WebSystemdSocket:   ptr(false),
+		WebConfigFile:      ptr(""),
+	}
+
+	if err := run("/metrics", false, 0, false, 1, flags, logger); err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestRun_BuildMuxError(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	prevListen := listenAndServe
+	prevNewLandingPage := newLandingPage
+	t.Cleanup(func() {
+		listenAndServe = prevListen
+		newLandingPage = prevNewLandingPage
+	})
+
+	listenAndServe = func(*http.Server, *web.FlagConfig, *slog.Logger) error {
+		t.Fatalf("listenAndServe should not be called")
+		return nil
+	}
+	newLandingPage = func(web.LandingConfig) (*web.LandingPageHandler, error) {
+		return nil, errors.New("boom")
+	}
+
+	flags := &web.FlagConfig{
+		WebListenAddresses: ptr([]string{":0"}),
+		WebSystemdSocket:   ptr(false),
+		WebConfigFile:      ptr(""),
+	}
+
+	if err := run("/metrics", false, 0, false, 1, flags, logger); err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestBuildMux_LandingPageError(t *testing.T) {
+	prev := newLandingPage
+	t.Cleanup(func() { newLandingPage = prev })
+
+	newLandingPage = func(web.LandingConfig) (*web.LandingPageHandler, error) {
+		return nil, errors.New("boom")
+	}
+
+	_, err := buildMux("/metrics", http.NewServeMux())
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func strconvBool(v bool) string {
+	if v {
+		return "true"
+	}
+	return "false"
+}
+
+func ptr[T any](v T) *T { return &v }
+
+func TestGitTag(t *testing.T) {
+	prev := version.Version
+	t.Cleanup(func() { version.Version = prev })
+
+	version.Version = ""
+	if got := gitTag(); got != "unknown" {
+		t.Fatalf("want %q, got %q", "unknown", got)
+	}
+
+	version.Version = "1.2.3"
+	if got := gitTag(); got != "v1.2.3" {
+		t.Fatalf("want %q, got %q", "v1.2.3", got)
+	}
+
+	version.Version = "v1.2.3"
+	if got := gitTag(); got != "v1.2.3" {
+		t.Fatalf("want %q, got %q", "v1.2.3", got)
+	}
+}
+
+func TestVersionString_IncludesGitTag(t *testing.T) {
+	prevVersion := version.Version
+	prevBranch := version.Branch
+	prevRevision := version.Revision
+	t.Cleanup(func() {
+		version.Version = prevVersion
+		version.Branch = prevBranch
+		version.Revision = prevRevision
+	})
+
+	version.Version = "1.2.3"
+	version.Branch = "master"
+	version.Revision = "deadbeef"
+
+	s := versionString("jellyfin_exporter")
+	if !strings.Contains(s, "git=v1.2.3") {
+		t.Fatalf("expected version output to include git tag, got:\n%s", s)
+	}
 }

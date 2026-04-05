@@ -14,6 +14,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 	"runtime"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/prometheus/common/promslog"
 	"github.com/prometheus/common/promslog/flag"
@@ -48,7 +50,15 @@ type handler struct {
 	logger                  *slog.Logger
 }
 
-func newHandler(includeExporterMetrics bool, maxRequests int, logger *slog.Logger) *handler {
+var (
+	listenAndServe       = web.ListenAndServe
+	currentUser          = user.Current
+	newLandingPage       = web.NewLandingPage
+	newJellyfinCollector = collector.NewJellyfinCollector
+	registerWithRegistry = func(r *prometheus.Registry, c prometheus.Collector) error { return r.Register(c) }
+)
+
+func newHandler(includeExporterMetrics bool, maxRequests int, logger *slog.Logger) (*handler, error) {
 	h := &handler{
 		exporterMetricsRegistry: prometheus.NewRegistry(),
 		includeExporterMetrics:  includeExporterMetrics,
@@ -61,13 +71,12 @@ func newHandler(includeExporterMetrics bool, maxRequests int, logger *slog.Logge
 			promcollectors.NewGoCollector(),
 		)
 	}
-	if innerHandler, err := h.innerHandler(); err != nil {
-		h.logger.Error("Couldn't create metrics handler", "err", err)
-		return nil
-	} else {
-		h.unfilteredHandler = innerHandler
+	innerHandler, err := h.innerHandler()
+	if err != nil {
+		return nil, err
 	}
-	return h
+	h.unfilteredHandler = innerHandler
+	return h, nil
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -84,7 +93,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if len(collects) > 0 && len(excludes) > 0 {
 		h.logger.Debug("rejecting combined collect and exclude queries")
-		fmt.Fprintf(os.Stderr, "Combined collect and exclude queries are not allowed.")
+		http.Error(w, "Combined collect and exclude queries are not allowed.", http.StatusBadRequest)
 		return
 	}
 
@@ -92,7 +101,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if len(excludes) > 0 {
 		f := []string{}
 		for _, c := range h.enabledCollectors {
-			if (slices.Index(excludes, c)) == -1 {
+			if !slices.Contains(excludes, c) {
 				f = append(f, c)
 			}
 		}
@@ -102,14 +111,14 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	filteredHandler, err := h.innerHandler(*filters...)
 	if err != nil {
 		h.logger.Warn("Couldn't create filtered metrics handler:", "err", err)
-		fmt.Fprintf(os.Stderr, "Couldn't create filtered metrics handler: %s\n", err)
+		http.Error(w, fmt.Sprintf("Couldn't create filtered metrics handler: %s", err), http.StatusBadRequest)
 		return
 	}
 	filteredHandler.ServeHTTP(w, r)
 }
 
 func (h *handler) innerHandler(filters ...string) (http.Handler, error) {
-	nc, err := collector.NewJellyfinCollector(h.logger, filters...)
+	nc, err := newJellyfinCollector(h.logger, filters...)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't create collector: %s", err)
 	}
@@ -127,7 +136,7 @@ func (h *handler) innerHandler(filters ...string) (http.Handler, error) {
 
 	r := prometheus.NewRegistry()
 	r.MustRegister(versioncollector.NewCollector("jellyfin_exporter"))
-	if err := r.Register(nc); err != nil {
+	if err := registerWithRegistry(r, nc); err != nil {
 		return nil, fmt.Errorf("couldn't register jellyfin collector: %s", err)
 	}
 
@@ -159,6 +168,72 @@ func (h *handler) innerHandler(filters ...string) (http.Handler, error) {
 	return handler, nil
 }
 
+func buildMux(metricsPath string, metricsHandler http.Handler) (*http.ServeMux, error) {
+	mux := http.NewServeMux()
+	mux.Handle(metricsPath, metricsHandler)
+
+	if metricsPath != "/" {
+		landingConfig := web.LandingConfig{
+			Name:        "Jellyfin Exporter",
+			Description: "Prometheus Jellyfin Exporter",
+			Version:     version.Info(),
+			Links: []web.LandingLinks{
+				{
+					Address: metricsPath,
+					Text:    "Metrics",
+				},
+			},
+		}
+		landingPage, err := newLandingPage(landingConfig)
+		if err != nil {
+			return nil, err
+		}
+		mux.Handle("/", landingPage)
+	}
+
+	return mux, nil
+}
+
+func run(
+	metricsPath string,
+	disableExporterMetrics bool,
+	maxRequests int,
+	disableDefaultCollectors bool,
+	maxProcs int,
+	toolkitFlags *web.FlagConfig,
+	logger *slog.Logger,
+) error {
+	if toolkitFlags == nil {
+		return errors.New("missing web flags config")
+	}
+
+	if disableDefaultCollectors {
+		collector.DisableDefaultCollectors()
+	}
+	logger.Info("Starting jellyfin_exporter", "version", version.Info(), "git_tag", gitTag())
+	logger.Info("Build context", "build_context", version.BuildContext())
+
+	if u, err := currentUser(); err == nil && u.Uid == "0" {
+		logger.Warn("Jellyfin Exporter is running as root user. This exporter is designed to run as unprivileged user, root is not required.")
+	}
+
+	runtime.GOMAXPROCS(maxProcs)
+	logger.Debug("Go MAXPROCS", "procs", runtime.GOMAXPROCS(0))
+
+	metricsHandler, err := newHandler(!disableExporterMetrics, maxRequests, logger)
+	if err != nil {
+		return fmt.Errorf("couldn't create metrics handler: %w", err)
+	}
+
+	mux, err := buildMux(metricsPath, metricsHandler)
+	if err != nil {
+		return fmt.Errorf("couldn't create HTTP mux: %w", err)
+	}
+
+	server := &http.Server{Handler: mux}
+	return listenAndServe(server, toolkitFlags, logger)
+}
+
 func main() {
 	var (
 		metricsPath = kingpin.Flag(
@@ -185,47 +260,54 @@ func main() {
 
 	promslogConfig := &promslog.Config{}
 	flag.AddFlags(kingpin.CommandLine, promslogConfig)
-	kingpin.Version(version.Print("jellyfin_exporter"))
+	kingpin.Version(versionString("jellyfin_exporter"))
 	kingpin.CommandLine.UsageWriter(os.Stdout)
 	kingpin.HelpFlag.Short('h')
 	kingpin.Parse()
 	logger := promslog.New(promslogConfig)
 
-	if *disableDefaultCollectors {
-		collector.DisableDefaultCollectors()
-	}
-	logger.Info("Starting jellyfin_exporter", "version", version.Info())
-	logger.Info("Build context", "build_context", version.BuildContext())
-	if user, err := user.Current(); err == nil && user.Uid == "0" {
-		logger.Warn("Jellyfin Exporter is running as root user. This exporter is designed to run as unprivileged user, root is not required.")
-	}
-	runtime.GOMAXPROCS(*maxProcs)
-	logger.Debug("Go MAXPROCS", "procs", runtime.GOMAXPROCS(0))
-
-	http.Handle(*metricsPath, newHandler(!*disableExporterMetrics, *maxRequests, logger))
-	if *metricsPath != "/" {
-		landingConfig := web.LandingConfig{
-			Name:        "Jellyfin Exporter",
-			Description: "Prometheus Jellyfin Exporter",
-			Version:     version.Info(),
-			Links: []web.LandingLinks{
-				{
-					Address: *metricsPath,
-					Text:    "Metrics",
-				},
-			},
-		}
-		landingPage, err := web.NewLandingPage(landingConfig)
-		if err != nil {
-			logger.Error(err.Error())
-			os.Exit(1)
-		}
-		http.Handle("/", landingPage)
-	}
-
-	server := &http.Server{}
-	if err := web.ListenAndServe(server, toolkitFlags, logger); err != nil {
+	if err := run(
+		*metricsPath,
+		*disableExporterMetrics,
+		*maxRequests,
+		*disableDefaultCollectors,
+		*maxProcs,
+		toolkitFlags,
+		logger,
+	); err != nil {
 		logger.Error(err.Error())
 		os.Exit(1)
 	}
+}
+
+func versionString(program string) string {
+	return fmt.Sprintf(`%s, version %s (branch: %s, revision: %s)
+  build user:       %s
+  build date:       %s
+  go version:       %s
+  platform:         %s/%s
+  tags:             git=%s, go=%s`,
+		program,
+		version.Version,
+		version.Branch,
+		version.GetRevision(),
+		version.BuildUser,
+		version.BuildDate,
+		version.GoVersion,
+		version.GoOS,
+		version.GoArch,
+		gitTag(),
+		version.GetTags(),
+	)
+}
+
+func gitTag() string {
+	v := strings.TrimSpace(version.Version)
+	if v == "" || v == "unknown" {
+		return "unknown"
+	}
+	if strings.HasPrefix(v, "v") {
+		return v
+	}
+	return "v" + v
 }

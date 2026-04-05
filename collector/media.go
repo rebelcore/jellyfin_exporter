@@ -51,8 +51,7 @@ func NewMediaCollector(logger *slog.Logger) (Collector, error) {
 
 func getMediaCounts(jellyfinURL, jellyfinToken string) (map[string]float64, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/Items/Counts", jellyfinURL)
-	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	rawBody, err := utils.CoerceToJSONBytes(rawData)
+	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
 	if err != nil {
 		return nil, err
 	}
@@ -76,10 +75,10 @@ func (c *mediaCollector) Update(ch chan<- prometheus.Metric) error {
 	}
 	for name, count := range counts {
 		itemName := strings.ReplaceAll(name, "Count", "")
-		c.logger.Debug("Jellyfin Media System Total", itemName, count)
+		c.logger.Debug("Jellyfin Media System Total", "type", itemName, "count", count)
 		ch <- prometheus.MustNewConstMetric(
 			c.mediaItems,
-			prometheus.CounterValue,
+			prometheus.GaugeValue,
 			count,
 			itemName,
 		)
