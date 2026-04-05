@@ -1,0 +1,144 @@
+---
+name: Beta Feedback
+description: Share feedback from using the beta release.
+title: "[BETA]: "
+labels: ["beta","feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing the beta release!
+
+        Please **do not** include secrets in this report (Jellyfin API tokens, passwords, private URLs, etc).
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have removed/redacted any tokens, passwords, or other secrets.
+          required: true
+  - type: input
+    id: exporter-version
+    attributes:
+      label: jellyfin_exporter version
+      description: Run `jellyfin_exporter --version`
+      placeholder: 1.0.0-beta
+    validations:
+      required: true
+  - type: input
+    id: jellyfin-version
+    attributes:
+      label: Jellyfin version
+      placeholder: 10.9.0
+    validations:
+      required: false
+  - type: dropdown
+    id: run-method
+    attributes:
+      label: How are you running it?
+      multiple: false
+      options:
+        - Docker
+        - Binary (release download)
+        - Built from source
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating System
+      multiple: false
+      options:
+        - FreeBSD
+        - Linux
+        - MacOS
+        - NetBSD
+        - OpenBSD
+        - Windows
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: os-architecture
+    attributes:
+      label: Operating System Architecture
+      multiple: false
+      options:
+        - 386
+        - amd64
+        - arm64
+        - armv5
+        - armv6
+        - armv7
+        - mips
+        - mips64
+        - mips64le
+        - mipsle
+        - ppc64
+        - ppc64le
+        - riscv64
+        - s390x
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: flags-or-config
+    attributes:
+      label: Flags/config used
+      description: |
+        If you're using CLI flags, paste them here (redact `--jellyfin.token`).
+        If you're using a config file, paste the relevant parts (redact secrets).
+      render: bash
+      placeholder: |
+        jellyfin_exporter \
+          --jellyfin.server "http://jellyfin:8096" \
+          --jellyfin.token "[REDACTED]" \
+          --web.listen-address ":9580"
+    validations:
+      required: false
+  - type: textarea
+    id: what-you-tried
+    attributes:
+      label: What were you trying to do?
+      description: A short description of your goal and what you expected.
+      placeholder: I was trying to scrape metrics in Prometheus and build a dashboard for...
+    validations:
+      required: true
+  - type: textarea
+    id: what-worked
+    attributes:
+      label: What worked well?
+      placeholder: Setup was straightforward, metrics looked correct, low resource usage, etc.
+    validations:
+      required: false
+  - type: textarea
+    id: what-didnt
+    attributes:
+      label: What didn’t work (or felt rough)?
+      description: Include any confusing behavior, docs gaps, missing metrics, or performance concerns.
+      placeholder: The exporter failed when..., I expected metric X but saw..., the docs were unclear about...
+    validations:
+      required: false
+  - type: textarea
+    id: suggestions
+    attributes:
+      label: Suggestions / ideas
+      placeholder: If you could change one thing, what would it be?
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (if relevant)
+      description: Paste relevant logs here (redact secrets).
+      render: bash
+    validations:
+      required: false
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Anything else that would help (Prometheus version, scrape config, screenshots, etc).
+    validations:
+      required: false

@@ -8,7 +8,6 @@ on:
   workflow_dispatch:
 
 jobs:
-
   Release:
     name: Create Release
     runs-on: ubuntu-latest
@@ -19,10 +18,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.BOT_TOKEN }}
           TAG: ${{ github.ref_name }}
+        shell: bash
         run: |
+          prerelease_flag=""
+          if [[ "${TAG}" == *"-beta" ]]; then
+          prerelease_flag="--prerelease"
+          fi
+
           gh release create "${TAG}" \
-              --repo="$GITHUB_REPOSITORY" \
-              --title="${TAG#v} / $(date '+%Y-%m-%d')"
+            --repo="$GITHUB_REPOSITORY" \
+            ${prerelease_flag} \
+            --title="${TAG#v} / $(date '+%Y-%m-%d')"
 
   Build:
     name: Build Release
@@ -33,10 +39,12 @@ jobs:
       contents: read
     strategy:
       matrix:
-        thread: [ 0, 1, 2, 3, 4, 5 ]
+        thread: [0, 1, 2, 3, 4, 5]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Get CI Commands
         uses: rebelmediausa/promci@v1
@@ -59,6 +67,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Get CI Commands
         uses: rebelmediausa/promci@v1

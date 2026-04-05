@@ -16,8 +16,6 @@
 package collector
 
 import (
-	"encoding/json"
-	"fmt"
 	"log/slog"
 	"strings"
 
@@ -27,42 +25,13 @@ import (
 	"github.com/rebelcore/jellyfin_exporter/config"
 )
 
-type PlayState struct {
-	PositionTicks       int64  `json:"PositionTicks"`
-	CanSeek             bool   `json:"CanSeek"`
-	IsPaused            bool   `json:"IsPaused"`
-	IsMuted             bool   `json:"IsMuted"`
-	AudioStreamIndex    int    `json:"AudioStreamIndex"`
-	SubtitleStreamIndex int    `json:"SubtitleStreamIndex"`
-	MediaSourceId       string `json:"MediaSourceId"`
-	PlayMethod          string `json:"PlayMethod"`
-	RepeatMode          string `json:"RepeatMode"`
-	PlaybackOrder       string `json:"PlaybackOrder"`
-}
-
-type NowPlayingItem struct {
-	Name        string `json:"Name"`
-	Type        string `json:"Type"`
-	SeriesName  string `json:"SeriesName,omitempty"`
-	ParentIndex int    `json:"ParentIndexNumber,omitempty"`
-	IndexNumber int    `json:"IndexNumber,omitempty"`
-}
-
-type JellyfinSession struct {
-	PlayState          *PlayState      `json:"PlayState"`
-	UserId             string          `json:"UserId"`
-	UserName           string          `json:"UserName"`
-	DeviceName         string          `json:"DeviceName"`
-	Client             string          `json:"Client"`
-	ApplicationVersion string          `json:"ApplicationVersion"`
-	RemoteEndPoint     string          `json:"RemoteEndPoint"`
-	LastActivityDate   string          `json:"LastActivityDate"`
-	NowPlayingItem     *NowPlayingItem `json:"NowPlayingItem"`
-}
-
 type playingCollector struct {
-	nowPlaying *prometheus.Desc
-	logger     *slog.Logger
+	nowPlaying       *prometheus.Desc
+	progress         *prometheus.Desc
+	positionSeconds  *prometheus.Desc
+	durationSeconds  *prometheus.Desc
+	remainingSeconds *prometheus.Desc
+	logger           *slog.Logger
 }
 
 func init() {
@@ -71,31 +40,44 @@ func init() {
 
 func NewPlayingCollector(logger *slog.Logger) (Collector, error) {
 	const subsystem = "now_playing"
-	nowPlaying := prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, subsystem, "state"),
-		"Jellyfin currently playing sessions.",
-		[]string{
-			"user_id", "username", "device", "type", "title", "series_title", "series_season", "series_episode", "method",
-		}, nil,
-	)
-	return &playingCollector{
-		nowPlaying: nowPlaying,
-		logger:     logger,
-	}, nil
-}
 
-func getNowPlayingSessions(jellyfinURL, jellyfinToken string) ([]JellyfinSession, error) {
-	jellyfinAPIURL := fmt.Sprintf("%s/Sessions?activeWithinSeconds=60&IsPlaying=true", jellyfinURL)
-	rawData := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	rawBody, err := utils.CoerceToJSONBytes(rawData)
-	if err != nil {
-		return nil, err
+	labelNames := []string{
+		"user_id", "username", "device", "type", "title", "series_title", "series_season", "series_episode", "method",
 	}
-	var sessions []JellyfinSession
-	if err := json.Unmarshal(rawBody, &sessions); err != nil {
-		return nil, fmt.Errorf("unexpected response from Jellyfin API: %w", err)
-	}
-	return sessions, nil
+
+	return &playingCollector{
+		nowPlaying: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subsystem, "state"),
+			"Jellyfin currently playing sessions. (1 = playing, 0 = paused)",
+			labelNames,
+			nil,
+		),
+		progress: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subsystem, "progress"),
+			"Percent played for the currently playing session, if run time is known.",
+			labelNames,
+			nil,
+		),
+		positionSeconds: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subsystem, "position"),
+			"Current playback position in seconds.",
+			labelNames,
+			nil,
+		),
+		durationSeconds: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subsystem, "duration"),
+			"Media duration in seconds.",
+			labelNames,
+			nil,
+		),
+		remainingSeconds: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, subsystem, "remaining"),
+			"Remaining media time in seconds.",
+			labelNames,
+			nil,
+		),
+		logger: logger,
+	}, nil
 }
 
 func (c *playingCollector) Update(ch chan<- prometheus.Metric) error {
@@ -104,42 +86,19 @@ func (c *playingCollector) Update(ch chan<- prometheus.Metric) error {
 		c.logger.Error("Failed to get Jellyfin config", "error", err)
 		return err
 	}
-	sessions, err := getNowPlayingSessions(jellyfinURL, jellyfinToken)
+	sessions, err := utils.GetNowPlayingSessions(jellyfinURL, jellyfinToken)
 	if err != nil {
 		c.logger.Error("Failed to get sessions", "error", err)
 		return err
 	}
 	for _, session := range sessions {
-		state := 1.0
-		playMethod := ""
-		mediaType := ""
-		title := ""
-		seriesTitle := ""
-		season := ""
-		episode := ""
-
-		if session.PlayState != nil {
-			if session.PlayState.IsPaused {
-				state = 0.0
-			}
-			playMethod = strings.ToLower(session.PlayState.PlayMethod)
-		}
-		if session.NowPlayingItem != nil {
-			mediaType = session.NowPlayingItem.Type
-			title = session.NowPlayingItem.Name
-			seriesTitle = session.NowPlayingItem.SeriesName
-			if session.NowPlayingItem.ParentIndex > 0 {
-				season = fmt.Sprintf("S%d", session.NowPlayingItem.ParentIndex)
-			}
-			if session.NowPlayingItem.IndexNumber > 0 {
-				episode = fmt.Sprintf("E%d", session.NowPlayingItem.IndexNumber)
-			}
+		state, playMethod, mediaType, title, seriesTitle, season, episode := nowPlayingValues(session)
+		if title == "" {
+			continue
 		}
 		c.logger.Debug("Jellyfin Now Playing", "User", session.UserName, "Title", title)
-		ch <- prometheus.MustNewConstMetric(
-			c.nowPlaying,
-			prometheus.GaugeValue,
-			state,
+
+		labelValues := []string{
 			session.UserId,
 			session.UserName,
 			session.DeviceName,
@@ -149,7 +108,106 @@ func (c *playingCollector) Update(ch chan<- prometheus.Metric) error {
 			season,
 			episode,
 			playMethod,
-		)
+		}
+
+		ch <- prometheus.MustNewConstMetric(c.nowPlaying, prometheus.GaugeValue, state, labelValues...)
+		if percent, ok := nowPlayingProgressPercent(session); ok {
+			ch <- prometheus.MustNewConstMetric(c.progress, prometheus.GaugeValue, percent, labelValues...)
+		}
+
+		if mediaType != "Movie" && mediaType != "Episode" {
+			continue
+		}
+
+		if pos, ok := nowPlayingPositionSeconds(session); ok {
+			ch <- prometheus.MustNewConstMetric(c.positionSeconds, prometheus.GaugeValue, pos, labelValues...)
+		}
+		if dur, ok := nowPlayingDurationSeconds(session); ok {
+			ch <- prometheus.MustNewConstMetric(c.durationSeconds, prometheus.GaugeValue, dur, labelValues...)
+		}
+		if rem, ok := nowPlayingRemainingSeconds(session); ok {
+			ch <- prometheus.MustNewConstMetric(c.remainingSeconds, prometheus.GaugeValue, rem, labelValues...)
+		}
 	}
 	return nil
+}
+
+func nowPlayingValues(session utils.JellyfinSession) (state float64, playMethod, mediaType, title, seriesTitle, season, episode string) {
+	if session.PlayState == nil {
+		state = 0.0
+	} else if session.PlayState.IsPaused {
+		state = 0.0
+	} else {
+		state = 1.0
+	}
+	if session.PlayState != nil {
+		playMethod = strings.ToLower(session.PlayState.PlayMethod)
+	}
+	if session.NowPlayingItem != nil {
+		mediaType = session.NowPlayingItem.Type
+		title = session.NowPlayingItem.Name
+		seriesTitle = session.NowPlayingItem.SeriesName
+		season = session.NowPlayingItem.Season()
+		episode = session.NowPlayingItem.Episode()
+	}
+
+	return state, playMethod, mediaType, title, seriesTitle, season, episode
+}
+
+func nowPlayingProgressPercent(session utils.JellyfinSession) (float64, bool) {
+	if session.PlayState == nil || session.PlayState.PositionTicks == nil || session.NowPlayingItem == nil || session.NowPlayingItem.RunTimeTicks == nil {
+		return 0, false
+	}
+	runTimeTicks := *session.NowPlayingItem.RunTimeTicks
+	if runTimeTicks <= 0 {
+		return 0, false
+	}
+	positionTicks := *session.PlayState.PositionTicks
+	if positionTicks < 0 {
+		positionTicks = 0
+	}
+	percent := (float64(positionTicks) / float64(runTimeTicks)) * 100.0
+	if percent > 100 {
+		percent = 100
+	}
+	return percent, true
+}
+
+const ticksPerSecond = 10_000_000
+
+func ticksToSeconds(ticks int64) float64 {
+	return float64(ticks) / float64(ticksPerSecond)
+}
+
+func nowPlayingPositionSeconds(session utils.JellyfinSession) (float64, bool) {
+	if session.PlayState == nil || session.PlayState.PositionTicks == nil {
+		return 0, false
+	}
+	return ticksToSeconds(*session.PlayState.PositionTicks), true
+}
+
+func nowPlayingDurationSeconds(session utils.JellyfinSession) (float64, bool) {
+	if session.NowPlayingItem == nil || session.NowPlayingItem.RunTimeTicks == nil {
+		return 0, false
+	}
+	if *session.NowPlayingItem.RunTimeTicks <= 0 {
+		return 0, false
+	}
+	return ticksToSeconds(*session.NowPlayingItem.RunTimeTicks), true
+}
+
+func nowPlayingRemainingSeconds(session utils.JellyfinSession) (float64, bool) {
+	pos, ok := nowPlayingPositionSeconds(session)
+	if !ok {
+		return 0, false
+	}
+	dur, ok := nowPlayingDurationSeconds(session)
+	if !ok {
+		return 0, false
+	}
+	rem := dur - pos
+	if rem < 0 {
+		rem = 0
+	}
+	return rem, true
 }

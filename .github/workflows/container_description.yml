@@ -3,13 +3,13 @@ name: Push README
 
 on:
   push:
+    branches:
+      - main
+      - master
     paths:
       - "README.md"
       - "README-containers.md"
       - ".github/workflows/container_description.yml"
-    branches:
-      - 'main'
-      - 'master'
 
 jobs:
 
@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: git checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set docker hub repo name
         run: echo "DOCKER_REPO_NAME=$(DOCKER_REPO=${{ secrets.DOCKER_HUB_ORG }} make docker-repo-name)" >> $GITHUB_ENV
@@ -34,4 +36,4 @@ jobs:
           destination_container_repo: ${{ env.DOCKER_REPO_NAME }}
           provider: dockerhub
           short_description: ${{ env.DOCKER_REPO_NAME }}
-          readme_file: ''
+          readme_file: 'README.md'

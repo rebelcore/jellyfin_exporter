@@ -69,20 +69,21 @@ Refer to [this repository](https://github.com/rebelcore/jellyfin_grafana) to che
 There is varying support for collectors.
 The tables below list all existing collectors.
 
-Collectors are enabled by providing a `--collector.<name>` flag.
+Collectors are enabled by providing a `--collector.NAME` flag.
 Collectors that are enabled by default can be disabled
-by providing a `--no-collector.<name>` flag.
+by providing a `--no-collector.NAME` flag.
 To enable only some specific collector(s),
-use `--collector.disable-defaults --collector.<name> ...`.
+use `--collector.disable-defaults --collector.NAME ...`.
+For example, `--collector.media` enables the `media` collector.
 
 ### Enabled by default
 
-| Name    | Description                                        |
-|---------|----------------------------------------------------|
-| media   | Exposes media totals in the system by type.        |
-| playing | Exposes media that users are now playing.          |
-| system  | Exposes if the Jellyfin server is online or not.   |
-| users   | Exposes users and if they are currently connected. |
+| Name    | Description                                                                                            |
+|---------|--------------------------------------------------------------------------------------------------------|
+| media   | Exposes media totals in the system by type (`jellyfin_media_count`).                                   |
+| playing | Exposes now playing state, progress, position, duration, and remaining time per session.               |
+| system  | Exposes server online status (`jellyfin_up`), server info, and pending restart state.                  |
+| users   | Exposes user accounts (active/disabled, admin status, last access) and active sessions with device info. |
 
 ### Disabled by default
 
@@ -103,9 +104,12 @@ and does not time out. In addition, monitor the
 `scrape_samples_post_metric_relabeling` metric to see the changes
 in cardinality.
 
-| Name     | Description                                             |
-|----------|---------------------------------------------------------|
-| activity | Exposes information from the Playback Reporting plugin. |
+| Name        | Description                                                                                   |
+|-------------|-----------------------------------------------------------------------------------------------|
+| activity    | Exposes information from the Playback Reporting plugin.                                       |
+| storage     | Exposes Jellyfin storage free/used bytes per location (program data, cache, libraries, etc.). |
+| tasks       | Exposes scheduled task state, progress, last run duration, and last run status.                |
+| transcoding | Exposes active transcoding session details (codecs, bitrate, framerate, resolution, etc.).     |
 
 ### Activity Collector
 
@@ -117,6 +121,98 @@ edit the setting `Keep data for` and set it to `Forever`. The option
 show the max amount of data. You can modify the amount of days to pull
 from, but it's recommended to leave it at its default for best data reporting.
 
+### Transcoding Collector
+
+The `transcoding` collector can be enabled with `--collector.transcoding`.
+It exposes detailed metrics about active transcoding sessions including
+codec information, bitrate, framerate, resolution, hardware acceleration
+status, and transcoding reasons. Sessions are identified by a `session_id`
+label so you can track individual streams.
+
+### Metrics Reference
+
+<details>
+<summary>Expand for a full list of exported metrics</summary>
+
+#### System
+
+| Metric                               | Type  | Labels                                                      |
+|--------------------------------------|-------|-------------------------------------------------------------|
+| `jellyfin_up`                        | Gauge | —                                                           |
+| `jellyfin_system_info`               | Gauge | server_id, server_name, version, product_name, package_name |
+| `jellyfin_system_pending_restart`    | Gauge | —                                                           |
+
+#### Media
+
+| Metric               | Type  | Labels |
+|----------------------|-------|--------|
+| `jellyfin_media_count` | Gauge | type   |
+
+#### Playing
+
+| Metric                            | Type  | Labels                                                                                                  |
+|-----------------------------------|-------|---------------------------------------------------------------------------------------------------------|
+| `jellyfin_now_playing_state`      | Gauge | user_id, username, device, type, title, series_title, series_season, series_episode, method             |
+| `jellyfin_now_playing_progress`   | Gauge | user_id, username, device, type, title, series_title, series_season, series_episode, method             |
+| `jellyfin_now_playing_position`   | Gauge | user_id, username, device, type, title, series_title, series_season, series_episode, method             |
+| `jellyfin_now_playing_duration`   | Gauge | user_id, username, device, type, title, series_title, series_season, series_episode, method             |
+| `jellyfin_now_playing_remaining`  | Gauge | user_id, username, device, type, title, series_title, series_season, series_episode, method             |
+
+#### Users
+
+| Metric                  | Type  | Labels                                                       |
+|------------------------|-------|--------------------------------------------------------------|
+| `jellyfin_user_account` | Gauge | user_id, username, admin, last_access                        |
+| `jellyfin_user_active`  | Gauge | user_id, username, client, client_version, device, ip_address |
+
+#### Activity
+
+| Metric                    | Type  | Labels                                        |
+|--------------------------|-------|-----------------------------------------------|
+| `jellyfin_activity_count` | Gauge | user_id, username, last_seen, total_play_time |
+
+#### Storage
+
+| Metric                       | Type  | Labels         |
+|------------------------------|-------|----------------|
+| `jellyfin_storage_free_bytes` | Gauge | location, name |
+| `jellyfin_storage_used_bytes` | Gauge | location, name |
+
+#### Tasks
+
+| Metric                            | Type  | Labels                     |
+|-----------------------------------|-------|----------------------------|
+| `jellyfin_tasks_state`            | Gauge | task_name, category, state |
+| `jellyfin_tasks_progress`         | Gauge | task_name, category        |
+| `jellyfin_tasks_last_run_seconds` | Gauge | task_name, category        |
+| `jellyfin_tasks_last_run_status`  | Gauge | task_name, category, status |
+
+#### Transcoding
+
+| Metric                                                    | Type  | Labels                                                                                                                                                                                         |
+|-----------------------------------------------------------|-------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `jellyfin_transcoding_active`                             | Gauge | —                                                                                                                                                                                              |
+| `jellyfin_transcoding_sessions`                           | Gauge | —                                                                                                                                                                                              |
+| `jellyfin_transcoding_session_info`                       | Gauge | session_id, user_id, username, device, client, client_version, ip_address, media_type, title, series_title, series_season, series_episode, container, video_codec, audio_codec, audio_channels, hardware_acceleration, method |
+| `jellyfin_transcoding_session_paused`                     | Gauge | session_id                                                                                                                                                                                     |
+| `jellyfin_transcoding_session_bitrate_bits_per_second`    | Gauge | session_id                                                                                                                                                                                     |
+| `jellyfin_transcoding_session_framerate`                  | Gauge | session_id                                                                                                                                                                                     |
+| `jellyfin_transcoding_session_completion_percentage`      | Gauge | session_id                                                                                                                                                                                     |
+| `jellyfin_transcoding_session_width_pixels`               | Gauge | session_id                                                                                                                                                                                     |
+| `jellyfin_transcoding_session_height_pixels`              | Gauge | session_id                                                                                                                                                                                     |
+| `jellyfin_transcoding_session_video_direct`               | Gauge | session_id                                                                                                                                                                                     |
+| `jellyfin_transcoding_session_audio_direct`               | Gauge | session_id                                                                                                                                                                                     |
+| `jellyfin_transcoding_session_reason`                     | Gauge | session_id, reason                                                                                                                                                                             |
+
+#### Exporter
+
+| Metric                                       | Type  | Labels    |
+|----------------------------------------------|-------|-----------|
+| `jellyfin_scrape_collector_duration_seconds`  | Gauge | collector |
+| `jellyfin_scrape_collector_success`           | Gauge | collector |
+
+</details>
+
 ### Filtering enabled collectors
 
 The `jellyfin_exporter` will expose all metrics from enabled collectors
@@ -125,17 +221,26 @@ by default. This is the recommended way to collect metrics to avoid errors.
 For advanced use the `jellyfin_exporter` can be passed an optional list
 of collectors to filter metrics. The `collect[]` parameter may be used
 multiple times. In Prometheus configuration you can use this syntax under
-the [scrape config](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#<scrape_config>).
+the [scrape config](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#scrape_config).
 
 ```
   params:
     collect[]:
-      - foo
-      - bar
+      - system
+      - media
 ```
 
 This can be useful for having different Prometheus servers collect
 specific metrics from nodes.
+
+You can also exclude collectors with `exclude[]` (do not combine `collect[]` and
+`exclude[]` in the same request).
+
+```
+  params:
+    exclude[]:
+      - playing
+```
 
 ## Development building and running
 
@@ -149,7 +254,7 @@ Building:
     git clone https://github.com/rebelcore/jellyfin_exporter.git
     cd jellyfin_exporter
     make build
-    ./jellyfin_exporter <flags>
+    ./jellyfin_exporter FLAGS
 
 To see all available configuration flags:
 
@@ -158,6 +263,11 @@ To see all available configuration flags:
 ## Running tests
 
     make test
+
+To generate a coverage report:
+
+    go test -count=1 ./... -race -covermode=atomic -coverpkg=./... -coverprofile=coverage.out
+    go tool cover -func=coverage.out
 
 ## TLS endpoint
 

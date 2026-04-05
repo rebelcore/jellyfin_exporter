@@ -4,10 +4,12 @@ name: Security
 on:
   push:
     branches:
-      - 'develop'
+      - main
+      - master
   pull_request:
     branches:
-      - 'develop'
+      - develop
+      - beta
   schedule:
     - cron: '25 19 * * 3'
 
@@ -27,6 +29,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
