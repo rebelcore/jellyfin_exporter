@@ -13,6 +13,8 @@ on:
   schedule:
     - cron: '25 19 * * 3'
 
+permissions: {}
+
 jobs:
 
   CodeQL:

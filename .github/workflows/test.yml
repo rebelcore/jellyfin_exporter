@@ -8,6 +8,8 @@ on:
       - beta
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
   Test:
     name: Test
