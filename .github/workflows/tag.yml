@@ -8,6 +8,8 @@ on:
       - master
       - beta
 
+permissions: {}
+
 jobs:
 
   Tag:

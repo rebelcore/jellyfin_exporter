@@ -11,6 +11,8 @@ on:
       - "README-containers.md"
       - ".github/workflows/container_description.yml"
 
+permissions: {}
+
 jobs:
 
   PushDockerHubReadme:
