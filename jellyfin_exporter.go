@@ -101,7 +101,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if len(excludes) > 0 {
 		f := []string{}
 		for _, c := range h.enabledCollectors {
-			if (slices.Index(excludes, c)) == -1 {
+			if !slices.Contains(excludes, c) {
 				f = append(f, c)
 			}
 		}
