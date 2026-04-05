@@ -14,7 +14,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      actions: write
     container:
       image: quay.io/prometheus/golang-builder:1.25-base
     steps:
