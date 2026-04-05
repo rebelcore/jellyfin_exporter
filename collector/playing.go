@@ -16,7 +16,6 @@
 package collector
 
 import (
-	"fmt"
 	"log/slog"
 	"strings"
 
@@ -148,12 +147,8 @@ func nowPlayingValues(session utils.JellyfinSession) (state float64, playMethod,
 		mediaType = session.NowPlayingItem.Type
 		title = session.NowPlayingItem.Name
 		seriesTitle = session.NowPlayingItem.SeriesName
-		if session.NowPlayingItem.ParentIndex > 0 {
-			season = fmt.Sprintf("S%d", session.NowPlayingItem.ParentIndex)
-		}
-		if session.NowPlayingItem.IndexNumber > 0 {
-			episode = fmt.Sprintf("E%d", session.NowPlayingItem.IndexNumber)
-		}
+		season = session.NowPlayingItem.Season()
+		episode = session.NowPlayingItem.Episode()
 	}
 
 	return state, playMethod, mediaType, title, seriesTitle, season, episode

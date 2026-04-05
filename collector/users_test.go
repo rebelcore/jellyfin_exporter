@@ -126,63 +126,6 @@ func TestGetUserAccount_Non2xx(t *testing.T) {
 	}
 }
 
-func TestGetUserActive(t *testing.T) {
-	const token = "abc123"
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if want, have := "/Sessions", r.URL.Path; want != have {
-			t.Fatalf("want path %q, have %q", want, have)
-		}
-		if want, have := "60", r.URL.Query().Get("activeWithinSeconds"); want != have {
-			t.Fatalf("want activeWithinSeconds=%q, have %q", want, have)
-		}
-		if want, have := "MediaBrowser Token="+token, r.Header.Get("Authorization"); want != have {
-			t.Fatalf("want Authorization header %q, have %q", want, have)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[
-			{"UserId":"u1","UserName":"Alice","Client":"Web","ApplicationVersion":"1","DeviceName":"iPad","RemoteEndPoint":"1.2.3.4"}
-		]`))
-	}))
-	defer srv.Close()
-
-	sessions, err := getUserActive(srv.URL, token)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(sessions) != 1 {
-		t.Fatalf("want 1 session, got %d", len(sessions))
-	}
-	if want, have := "Alice", sessions[0].UserName; want != have {
-		t.Fatalf("want username %q, have %q", want, have)
-	}
-}
-
-func TestGetUserActive_InvalidJSON(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{`))
-	}))
-	defer srv.Close()
-
-	_, err := getUserActive(srv.URL, "token")
-	if err == nil {
-		t.Fatalf("expected error")
-	}
-}
-
-func TestGetUserActive_Non2xx(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "boom", http.StatusInternalServerError)
-	}))
-	defer srv.Close()
-
-	_, err := getUserActive(srv.URL, "token")
-	if err == nil {
-		t.Fatalf("expected error")
-	}
-}
-
 func TestUsersCollectorUpdate(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	c, err := NewUsersCollector(logger)

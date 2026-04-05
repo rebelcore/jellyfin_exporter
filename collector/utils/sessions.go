@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 )
 
 type PlayState struct {
@@ -32,6 +33,20 @@ type NowPlayingItem struct {
 	ParentIndex  int    `json:"ParentIndexNumber,omitempty"`
 	IndexNumber  int    `json:"IndexNumber,omitempty"`
 	RunTimeTicks *int64 `json:"RunTimeTicks,omitempty"`
+}
+
+func (i *NowPlayingItem) Season() string {
+	if i == nil || i.ParentIndex <= 0 {
+		return ""
+	}
+	return "S" + strconv.Itoa(i.ParentIndex)
+}
+
+func (i *NowPlayingItem) Episode() string {
+	if i == nil || i.IndexNumber <= 0 {
+		return ""
+	}
+	return "E" + strconv.Itoa(i.IndexNumber)
 }
 
 type TranscodingInfo struct {

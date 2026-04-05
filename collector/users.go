@@ -42,15 +42,6 @@ type JellyfinUser struct {
 	Policy           UserPolicy `json:"Policy"`
 }
 
-type JellyfinSessionUser struct {
-	UserId             string `json:"UserId"`
-	UserName           string `json:"UserName"`
-	Client             string `json:"Client"`
-	ApplicationVersion string `json:"ApplicationVersion"`
-	DeviceName         string `json:"DeviceName"`
-	RemoteEndPoint     string `json:"RemoteEndPoint"`
-}
-
 type Account struct {
 	Username   string
 	UserID     string
@@ -131,20 +122,6 @@ func getUserAccount(jellyfinURL, jellyfinToken string) ([]Account, error) {
 	return accounts, nil
 }
 
-func getUserActive(jellyfinURL, jellyfinToken string) ([]JellyfinSessionUser, error) {
-	jellyfinAPIURL := fmt.Sprintf("%s/Sessions?activeWithinSeconds=60", jellyfinURL)
-	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	if err != nil {
-		return nil, err
-	}
-
-	var sessions []JellyfinSessionUser
-	if err := json.Unmarshal(rawBody, &sessions); err != nil {
-		return nil, fmt.Errorf("unexpected response from Jellyfin API: %w", err)
-	}
-	return sessions, nil
-}
-
 func (c *userCollector) Update(ch chan<- prometheus.Metric) error {
 	jellyfinURL, jellyfinToken, err := config.JellyfinInfo(c.logger)
 	if err != nil {
@@ -158,7 +135,7 @@ func (c *userCollector) Update(ch chan<- prometheus.Metric) error {
 		c.logger.Error("Failed to get user accounts", "error", err)
 	}
 
-	userActive, err := getUserActive(jellyfinURL, jellyfinToken)
+	activeSessions, err := utils.GetActiveSessions(jellyfinURL, jellyfinToken)
 	errActive := err
 	if err != nil {
 		c.logger.Error("Failed to get user sessions", "error", err)
@@ -179,10 +156,8 @@ func (c *userCollector) Update(ch chan<- prometheus.Metric) error {
 	}
 
 	if errActive == nil {
-		for _, session := range userActive {
+		for _, session := range activeSessions {
 			c.logger.Debug("Jellyfin user account active", "Value", session.UserName)
-			remoteEndPoint := session.RemoteEndPoint
-
 			ch <- prometheus.MustNewConstMetric(c.userActive,
 				prometheus.GaugeValue,
 				1,
@@ -191,7 +166,7 @@ func (c *userCollector) Update(ch chan<- prometheus.Metric) error {
 				session.Client,
 				session.ApplicationVersion,
 				session.DeviceName,
-				remoteEndPoint,
+				session.RemoteEndPoint,
 			)
 		}
 	}
