@@ -4,12 +4,13 @@ name: Push README
 on:
   push:
     branches:
-      - main
       - master
     paths:
       - "README.md"
       - "README-containers.md"
       - ".github/workflows/container_description.yml"
+
+permissions: {}
 
 jobs:
 
@@ -20,15 +21,17 @@ jobs:
       contents: read
     steps:
       - name: git checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          fetch-depth: 0
+          persist-credentials: false
 
       - name: Set docker hub repo name
-        run: echo "DOCKER_REPO_NAME=$(DOCKER_REPO=${{ secrets.DOCKER_HUB_ORG }} make docker-repo-name)" >> $GITHUB_ENV
+        env:
+          DOCKER_REPO: ${{ secrets.DOCKER_HUB_ORG }}
+        run: echo "DOCKER_REPO_NAME=$(DOCKER_REPO="$DOCKER_REPO" make docker-repo-name)" >> "$GITHUB_ENV"
 
       - name: Push README to Dockerhub
-        uses: christian-korneck/update-container-description-action@v1
+        uses: christian-korneck/update-container-description-action@d36005551adeaba9698d8d67a296bd16fa91f8e8 # v1
         env:
           DOCKER_USER: ${{ secrets.DOCKER_HUB_LOGIN }}
           DOCKER_PASS: ${{ secrets.DOCKER_HUB_PASSWORD }}

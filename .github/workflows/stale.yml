@@ -6,6 +6,8 @@ on:
     - cron: '30 1 * * *'
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
 
   Issues:
@@ -16,9 +18,8 @@ jobs:
       pull-requests: write
     steps:
       - name: Check stale Issues
-        uses: actions/stale@v10
+        uses: actions/stale@b5d41d4e1d5dceea10e7104786b73624c18a190f # v10
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
           ascending: true
           days-before-stale: 120
           days-before-pr-stale: -1
@@ -44,9 +45,8 @@ jobs:
       pull-requests: write
     steps:
       - name: Check stale Pull Request
-        uses: actions/stale@v10
+        uses: actions/stale@b5d41d4e1d5dceea10e7104786b73624c18a190f # v10
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
           ascending: true
           operations-per-run: 150
           # The merge conflict action will remove the label when updated
