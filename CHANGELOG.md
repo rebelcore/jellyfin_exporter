@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.1
+* [CLEANUP] Upgrade Go toolchain to 1.25.10
+* [CLEANUP] Pin Alpine base image to 3.23.4
+* [CLEANUP] Improve CI/GitHub workflow security
+
 ## 1.5.0
 * [FEATURE] Add `transcoding` collector (disabled by default)
 * [FEATURE] Add `storage` collector (disabled by default)
