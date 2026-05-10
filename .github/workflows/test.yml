@@ -17,7 +17,7 @@ jobs:
     permissions:
       contents: read
     container:
-      image: quay.io/prometheus/golang-builder:1.25-base
+      image: quay.io/prometheus/golang-builder:1.26-base
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -26,7 +26,7 @@ jobs:
           persist-credentials: false
 
       - name: Get CI Commands
-        uses: rebelmediausa/promci@v1
+        uses: rebelmediausa/promci@49becc35ae119591d96e39858701816a01b77c1a # v1.1.0
 
       - name: Setup Environment
         uses: ./.github/promci/actions/setup_environment
@@ -87,7 +87,6 @@ jobs:
     needs: [Test]
     permissions:
       contents: read
-      pull-requests: read
     strategy:
       matrix:
         thread: [0, 1, 2, 3, 4, 5]
@@ -99,7 +98,7 @@ jobs:
           persist-credentials: false
 
       - name: Get CI Commands
-        uses: rebelmediausa/promci@v1
+        uses: rebelmediausa/promci@49becc35ae119591d96e39858701816a01b77c1a # v1.1.0
 
       - name: Run Build
         uses: ./.github/promci/actions/build
