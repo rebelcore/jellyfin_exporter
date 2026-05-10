@@ -4,7 +4,6 @@ name: Create Tag
 on:
   push:
     branches:
-      - main
       - master
       - beta
 
@@ -15,19 +14,19 @@ jobs:
   Tag:
     name: Tag
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    permissions: {}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
+          token: ${{ secrets.BOT_TOKEN }}
 
       - name: Set tag ENV
         shell: bash
         run: |
-          if [ "${GITHUB_REF_NAME}" = "main" ] || [ "${GITHUB_REF_NAME}" = "master" ]; then
-             echo "VERSION=v$(cat VERSION)" >> "$GITHUB_ENV"
+          if [ "${GITHUB_REF_NAME}" = "master" ]; then
+            echo "VERSION=v$(cat VERSION)" >> "$GITHUB_ENV"
           else
             echo "VERSION=v$(cat VERSION)-${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
           fi
@@ -42,7 +41,7 @@ jobs:
           fi
 
       - name: Setup GIT
-        uses: rebelmediausa/gitconfig@v1
+        uses: rebelmediausa/gitconfig@e5dd080a5592bd940fd913575482e9137764eaba # v1
         with:
           git_user_name: RebelBot
           git_user_email: bot@rebelmedia.io
