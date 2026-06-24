@@ -26,17 +26,22 @@ import (
 	"github.com/rebelcore/jellyfin_exporter/config"
 )
 
+// jellyfinFolderStorage is the free/used byte counts for a single Jellyfin
+// folder or library location.
 type jellyfinFolderStorage struct {
 	FreeSpace int64 `json:"FreeSpace"`
 	UsedSpace int64 `json:"UsedSpace"`
 }
 
+// jellyfinLibraryStorage is a library and the storage of each of its folders.
 type jellyfinLibraryStorage struct {
 	ID      string                  `json:"Id"`
 	Name    string                  `json:"Name"`
 	Folders []jellyfinFolderStorage `json:"Folders"`
 }
 
+// jellyfinSystemStorage is the /System/Info/Storage response: the well-known
+// server folders (each optional, hence pointers) plus the per-library folders.
 type jellyfinSystemStorage struct {
 	ProgramDataFolder      *jellyfinFolderStorage   `json:"ProgramDataFolder"`
 	WebFolder              *jellyfinFolderStorage   `json:"WebFolder"`
@@ -48,6 +53,8 @@ type jellyfinSystemStorage struct {
 	Libraries              []jellyfinLibraryStorage `json:"Libraries"`
 }
 
+// storageCollector reports free and used bytes (jellyfin_storage_free_bytes and
+// jellyfin_storage_used_bytes) for each server folder and library location.
 type storageCollector struct {
 	freeBytes *prometheus.Desc
 	usedBytes *prometheus.Desc
@@ -58,6 +65,7 @@ func init() {
 	registerCollector("storage", defaultDisabled, NewStorageCollector)
 }
 
+// NewStorageCollector builds the storage collector and its descriptors.
 func NewStorageCollector(logger *slog.Logger) (Collector, error) {
 	const subsystem = "storage"
 
@@ -80,6 +88,7 @@ func NewStorageCollector(logger *slog.Logger) (Collector, error) {
 	}, nil
 }
 
+// getSystemStorage fetches and decodes /System/Info/Storage.
 func getSystemStorage(jellyfinURL, jellyfinToken string) (*jellyfinSystemStorage, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/System/Info/Storage", jellyfinURL)
 	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
@@ -93,6 +102,8 @@ func getSystemStorage(jellyfinURL, jellyfinToken string) (*jellyfinSystemStorage
 	return &storage, nil
 }
 
+// Update emits free/used byte metrics for each known server folder and for
+// every folder of every library.
 func (c *storageCollector) Update(ch chan<- prometheus.Metric) error {
 	jellyfinURL, jellyfinToken, err := config.JellyfinInfo(c.logger)
 	if err != nil {
@@ -123,6 +134,8 @@ func (c *storageCollector) Update(ch chan<- prometheus.Metric) error {
 	return nil
 }
 
+// emitFolder emits the free/used byte metrics for a single folder, labelled by
+// location and name. A nil folder (absent in the response) is skipped.
 func (c *storageCollector) emitFolder(ch chan<- prometheus.Metric, location string, folder *jellyfinFolderStorage, libraryName string) {
 	if folder == nil {
 		return

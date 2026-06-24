@@ -27,6 +27,8 @@ import (
 	"github.com/rebelcore/jellyfin_exporter/config"
 )
 
+// jellyfinTaskResult is a task's LastExecutionResult. The error fields are
+// pointers so they remain nil when the task did not fail.
 type jellyfinTaskResult struct {
 	StartTimeUtc     string  `json:"StartTimeUtc"`
 	EndTimeUtc       string  `json:"EndTimeUtc"`
@@ -35,6 +37,8 @@ type jellyfinTaskResult struct {
 	LongErrorMessage *string `json:"LongErrorMessage"`
 }
 
+// jellyfinTaskInfo is one entry from /ScheduledTasks. Most fields are pointers
+// because the API omits them depending on the task and its run history.
 type jellyfinTaskInfo struct {
 	Name                      *string             `json:"Name"`
 	State                     string              `json:"State"`
@@ -46,6 +50,8 @@ type jellyfinTaskInfo struct {
 	Key                       *string             `json:"Key"`
 }
 
+// tasksCollector reports scheduled-task health: current run state, progress
+// percentage, and the duration and status of the last execution.
 type tasksCollector struct {
 	state           *prometheus.Desc
 	progressPercent *prometheus.Desc
@@ -58,6 +64,9 @@ func init() {
 	registerCollector("tasks", defaultDisabled, NewTasksCollector)
 }
 
+// NewTasksCollector builds the tasks collector and its descriptors. The state
+// and last_run_status metrics carry the textual value as an extra label, so the
+// gauge (1 = Running / Completed) and the raw status are both queryable.
 func NewTasksCollector(logger *slog.Logger) (Collector, error) {
 	const subsystem = "tasks"
 
@@ -92,6 +101,7 @@ func NewTasksCollector(logger *slog.Logger) (Collector, error) {
 	}, nil
 }
 
+// getScheduledTasks fetches and decodes /ScheduledTasks.
 func getScheduledTasks(jellyfinURL, jellyfinToken string) ([]jellyfinTaskInfo, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/ScheduledTasks", jellyfinURL)
 	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
@@ -106,6 +116,10 @@ func getScheduledTasks(jellyfinURL, jellyfinToken string) ([]jellyfinTaskInfo, e
 	return tasks, nil
 }
 
+// Update emits state, progress, last-run duration and last-run status for each
+// scheduled task. Each metric is skipped when its underlying field is absent,
+// and the last-run duration is emitted only when both timestamps parse and the
+// end is after the start.
 func (c *tasksCollector) Update(ch chan<- prometheus.Metric) error {
 	jellyfinURL, jellyfinToken, err := config.JellyfinInfo(c.logger)
 	if err != nil {
@@ -131,6 +145,8 @@ func (c *tasksCollector) Update(ch chan<- prometheus.Metric) error {
 
 		labelValues := []string{taskName, category}
 
+		// Current run state: 1 when Running, with the textual state kept as a
+		// label so other states (Idle, Cancelling) stay queryable.
 		if task.State != "" {
 			state := 0.0
 			if task.State == "Running" {
@@ -146,6 +162,9 @@ func (c *tasksCollector) Update(ch chan<- prometheus.Metric) error {
 		if task.LastExecutionResult != nil {
 			res := task.LastExecutionResult
 
+			// Last-run duration, emitted only when both timestamps parse and the
+			// run actually advanced (end after start); this guards against
+			// missing or malformed timestamps.
 			if res.StartTimeUtc != "" && res.EndTimeUtc != "" {
 				start, startErr := time.Parse(time.RFC3339Nano, res.StartTimeUtc)
 				end, endErr := time.Parse(time.RFC3339Nano, res.EndTimeUtc)
@@ -154,6 +173,7 @@ func (c *tasksCollector) Update(ch chan<- prometheus.Metric) error {
 				}
 			}
 
+			// Last-run outcome: 1 when Completed, with the raw status as a label.
 			if res.Status != "" {
 				status := 0.0
 				if res.Status == "Completed" {

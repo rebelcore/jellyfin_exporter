@@ -27,6 +27,8 @@ import (
 	"github.com/rebelcore/jellyfin_exporter/config"
 )
 
+// mediaCollector reports library item totals (jellyfin_media_count) broken down
+// by item type (Movie, Series, Episode, ...).
 type mediaCollector struct {
 	mediaItems *prometheus.Desc
 	logger     *slog.Logger
@@ -36,6 +38,7 @@ func init() {
 	registerCollector("media", defaultEnabled, NewMediaCollector)
 }
 
+// NewMediaCollector builds the media collector and its metric descriptor.
 func NewMediaCollector(logger *slog.Logger) (Collector, error) {
 	const subsystem = "media"
 	mediaItems := prometheus.NewDesc(
@@ -49,6 +52,8 @@ func NewMediaCollector(logger *slog.Logger) (Collector, error) {
 	}, nil
 }
 
+// getMediaCounts fetches /Items/Counts, whose JSON is a map of "<Type>Count"
+// keys (MovieCount, SeriesCount, ...) to their totals.
 func getMediaCounts(jellyfinURL, jellyfinToken string) (map[string]float64, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/Items/Counts", jellyfinURL)
 	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
@@ -62,6 +67,9 @@ func getMediaCounts(jellyfinURL, jellyfinToken string) (map[string]float64, erro
 	return counts, nil
 }
 
+// Update emits one jellyfin_media_count series per item type, deriving the
+// "type" label by stripping the trailing "Count" from each response key. New
+// count types added by Jellyfin are picked up automatically.
 func (c *mediaCollector) Update(ch chan<- prometheus.Metric) error {
 	jellyfinURL, jellyfinToken, err := config.JellyfinInfo(c.logger)
 	if err != nil {

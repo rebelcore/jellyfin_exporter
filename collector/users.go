@@ -29,12 +29,14 @@ import (
 	"github.com/rebelcore/jellyfin_exporter/config"
 )
 
+// UserPolicy is the subset of a user's Policy block the exporter reads.
 type UserPolicy struct {
 	IsDisabled      bool     `json:"IsDisabled"`
 	IsAdministrator bool     `json:"IsAdministrator"`
 	EnabledFolders  []string `json:"EnabledFolders"`
 }
 
+// JellyfinUser is one entry from the /Users response.
 type JellyfinUser struct {
 	Name             string     `json:"Name"`
 	Id               string     `json:"Id"`
@@ -42,6 +44,9 @@ type JellyfinUser struct {
 	Policy           UserPolicy `json:"Policy"`
 }
 
+// Account is the flattened, metric-ready view of a JellyfinUser. Active and
+// Admin are 1/0 gauge values; LastActive is a Unix timestamp string, left empty
+// when the user has never been active or the date could not be parsed.
 type Account struct {
 	Username   string
 	UserID     string
@@ -51,6 +56,8 @@ type Account struct {
 	Access     []string
 }
 
+// userCollector reports the full user roster (jellyfin_user_account) and the
+// users with a currently active session (jellyfin_user_active).
 type userCollector struct {
 	userAccount *prometheus.Desc
 	userActive  *prometheus.Desc
@@ -61,6 +68,7 @@ func init() {
 	registerCollector("users", defaultEnabled, NewUsersCollector)
 }
 
+// NewUsersCollector builds the users collector and its metric descriptors.
 func NewUsersCollector(logger *slog.Logger) (Collector, error) {
 	const subsystem = "user"
 	userAccount := prometheus.NewDesc(
@@ -80,6 +88,8 @@ func NewUsersCollector(logger *slog.Logger) (Collector, error) {
 	}, nil
 }
 
+// getUserAccount fetches /Users and converts each user into an Account,
+// parsing LastActivityDate into a Unix timestamp where present.
 func getUserAccount(jellyfinURL, jellyfinToken string) ([]Account, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/Users", jellyfinURL)
 	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
@@ -94,6 +104,8 @@ func getUserAccount(jellyfinURL, jellyfinToken string) ([]Account, error) {
 
 	accounts := make([]Account, 0, len(users))
 	for _, u := range users {
+		// Convert the last-activity timestamp to a Unix epoch string, leaving it
+		// empty when the user has never been active or the date can't be parsed.
 		userLastActive := ""
 		if u.LastActivityDate != "" {
 			t, err := time.Parse(time.RFC3339, u.LastActivityDate)
@@ -122,6 +134,10 @@ func getUserAccount(jellyfinURL, jellyfinToken string) ([]Account, error) {
 	return accounts, nil
 }
 
+// Update emits one jellyfin_user_account series per user and one
+// jellyfin_user_active series per active session. The account and session
+// lookups fail independently: a failure in one still reports the other, and the
+// joined error is returned so the scrape is marked unsuccessful.
 func (c *userCollector) Update(ch chan<- prometheus.Metric) error {
 	jellyfinURL, jellyfinToken, err := config.JellyfinInfo(c.logger)
 	if err != nil {
@@ -129,6 +145,9 @@ func (c *userCollector) Update(ch chan<- prometheus.Metric) error {
 		return err
 	}
 
+	// Fetch the account roster and the active sessions independently: a failure
+	// in one still reports the other, and both errors are joined at the end so
+	// the scrape is still marked unsuccessful.
 	userAccounts, err := getUserAccount(jellyfinURL, jellyfinToken)
 	errAccounts := err
 	if err != nil {

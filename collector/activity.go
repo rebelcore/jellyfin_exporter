@@ -28,10 +28,14 @@ import (
 	"github.com/rebelcore/jellyfin_exporter/config"
 )
 
+// jellyfinReportDays is the look-back window (in days) for the Playback
+// Reporting query, defaulting to ~100 years so the full history is included.
 var (
 	jellyfinReportDays = kingpin.Flag("collector.activity.days", "Jellyfin Playback Reporting search in days (Default to 100 Years).").Default("36525").String()
 )
 
+// JellyfinUserActivity is one row from the Playback Reporting plugin's
+// user_activity report. Field tags are snake_case to match that plugin's API.
 type JellyfinUserActivity struct {
 	LatestDate    string  `json:"latest_date"`
 	UserID        string  `json:"user_id"`
@@ -45,6 +49,9 @@ type JellyfinUserActivity struct {
 	TotalPlayTime string  `json:"total_play_time"`
 }
 
+// activityCollector reports per-user playback totals (jellyfin_activity_count)
+// from the third-party Playback Reporting plugin. It is disabled by default
+// because it requires that plugin to be installed.
 type activityCollector struct {
 	activityReport *prometheus.Desc
 	logger         *slog.Logger
@@ -54,6 +61,7 @@ func init() {
 	registerCollector("activity", defaultDisabled, NewActivityCollector)
 }
 
+// NewActivityCollector builds the activity collector and its descriptor.
 func NewActivityCollector(logger *slog.Logger) (Collector, error) {
 	const subsystem = "activity"
 	activityReport := prometheus.NewDesc(
@@ -72,6 +80,8 @@ func NewActivityCollector(logger *slog.Logger) (Collector, error) {
 	}, nil
 }
 
+// getUserActivity queries the Playback Reporting plugin's user_activity endpoint
+// over the given look-back window (in days) and decodes the result.
 func getUserActivity(jellyfinURL, jellyfinToken, days string) ([]JellyfinUserActivity, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/user_usage_stats/user_activity?days=%s", jellyfinURL, days)
 	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
@@ -85,6 +95,8 @@ func getUserActivity(jellyfinURL, jellyfinToken, days string) ([]JellyfinUserAct
 	return activityList, nil
 }
 
+// Update emits one jellyfin_activity_count series per user from the Playback
+// Reporting data.
 func (c *activityCollector) Update(ch chan<- prometheus.Metric) error {
 	jellyfinURL, jellyfinToken, err := config.JellyfinInfo(c.logger)
 	if err != nil {

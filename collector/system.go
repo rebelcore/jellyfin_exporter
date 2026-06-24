@@ -26,6 +26,8 @@ import (
 	"github.com/rebelcore/jellyfin_exporter/config"
 )
 
+// systemCollector reports server liveness (jellyfin_up), static server
+// information (jellyfin_system_info) and whether a restart is pending.
 type systemCollector struct {
 	systemUp          *prometheus.Desc
 	info              *prometheus.Desc
@@ -33,6 +35,9 @@ type systemCollector struct {
 	logger            *slog.Logger
 }
 
+// jellyfinSystemInfo is the subset of the /System/Info response the exporter
+// uses. StartupWizardCompleted is a pointer so an absent field stays nil rather
+// than defaulting to false.
 type jellyfinSystemInfo struct {
 	ServerName             string `json:"ServerName"`
 	Version                string `json:"Version"`
@@ -50,6 +55,7 @@ func init() {
 	registerCollector("system", defaultEnabled, NewSystemCollector)
 }
 
+// NewSystemCollector builds the system collector and its metric descriptors.
 func NewSystemCollector(logger *slog.Logger) (Collector, error) {
 	const subsystem = "system"
 
@@ -75,6 +81,8 @@ func NewSystemCollector(logger *slog.Logger) (Collector, error) {
 	}, nil
 }
 
+// getSystemPing calls /System/Ping and returns 1.0 when the server answers with
+// the expected marker, else 0.0.
 func getSystemPing(jellyfinURL, jellyfinToken string) (float64, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/System/Ping", jellyfinURL)
 	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
@@ -84,6 +92,7 @@ func getSystemPing(jellyfinURL, jellyfinToken string) (float64, error) {
 	return float64(utils.SystemUpValueFromPing(rawBody)), nil
 }
 
+// getSystemInfo fetches and decodes /System/Info.
 func getSystemInfo(jellyfinURL, jellyfinToken string) (*jellyfinSystemInfo, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/System/Info", jellyfinURL)
 	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
@@ -97,6 +106,9 @@ func getSystemInfo(jellyfinURL, jellyfinToken string) (*jellyfinSystemInfo, erro
 	return &info, nil
 }
 
+// Update scrapes liveness and server information, emitting jellyfin_up,
+// jellyfin_system_info and jellyfin_system_pending_restart. A failure talking to
+// the server is returned so the scrape is marked unsuccessful.
 func (c *systemCollector) Update(ch chan<- prometheus.Metric) error {
 	jellyfinURL, jellyfinToken, err := config.JellyfinInfo(c.logger)
 	if err != nil {

@@ -11,12 +11,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package utils holds the Jellyfin HTTP API client (GetHTTP), the session data
+// model shared across collectors, and small conversion helpers used when
+// turning API responses into Prometheus metric values.
 package utils
 
 import (
 	"strings"
 )
 
+// BoolToFloat maps a boolean to the 1/0 gauge value Prometheus expects.
 func BoolToFloat(v bool) float64 {
 	if v {
 		return 1
@@ -24,6 +28,9 @@ func BoolToFloat(v bool) float64 {
 	return 0
 }
 
+// SystemUpValueFromPing reports 1 when the /System/Ping body is the expected
+// "Jellyfin Server" marker (raw or JSON-quoted), else 0. Jellyfin returns this
+// endpoint as plain text rather than JSON, so it is matched as a string.
 func SystemUpValueFromPing(body []byte) int {
 	s := strings.TrimSpace(string(body))
 	if s == "Jellyfin Server" || s == "\"Jellyfin Server\"" {

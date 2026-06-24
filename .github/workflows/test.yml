@@ -10,17 +10,22 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   Test:
     name: Test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     container:
       image: quay.io/prometheus/golang-builder:1.26-base
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -48,6 +53,9 @@ jobs:
 
       - name: Vet
         run: make vet
+
+      - name: Vulnerability check
+        run: make govulncheck
 
       - name: Run tests with coverage
         run: |
@@ -84,6 +92,7 @@ jobs:
   Build:
     name: Build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [Test]
     permissions:
       contents: read
@@ -92,7 +101,7 @@ jobs:
         thread: [0, 1, 2, 3, 4, 5]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           persist-credentials: false

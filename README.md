@@ -1,12 +1,20 @@
-# Jellyfin exporter
+<div align="center">
 
-[![Test & Build](https://github.com/rebelcore/jellyfin_exporter/actions/workflows/test.yml/badge.svg?branch=develop)](https://github.com/rebelcore/jellyfin_exporter/actions/workflows/test.yml)
-[![Current Release](https://img.shields.io/github/v/release/rebelcore/jellyfin_exporter)](https://github.com/rebelcore/jellyfin_exporter/releases/latest)
-[![Docker Pulls](https://img.shields.io/docker/pulls/rebelcore/jellyfin-exporter)](https://hub.docker.com/r/rebelcore/jellyfin-exporter)
-[![Go Report Card](https://goreportcard.com/badge/github.com/rebelcore/jellyfin_exporter)](https://goreportcard.com/report/github.com/rebelcore/jellyfin_exporter)
+# Jellyfin Exporter
+
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/rebelcore/jellyfin_exporter/test.yml?style=for-the-badge&color=22C55E)](https://github.com/rebelcore/jellyfin_exporter/actions/workflows/test.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/rebelcore/jellyfin_exporter?style=for-the-badge&color=22C55E)](https://github.com/rebelcore/jellyfin_exporter/releases/latest)
+[![Docker Pulls](https://img.shields.io/docker/pulls/rebelcore/jellyfin-exporter?style=for-the-badge&color=1D63ED)](https://hub.docker.com/r/rebelcore/jellyfin-exporter)
+[![Docker Image Size](https://img.shields.io/docker/image-size/rebelcore/jellyfin-exporter/latest?style=for-the-badge&color=1D63ED)](https://hub.docker.com/r/rebelcore/jellyfin-exporter)
+[![Go Report Card](https://img.shields.io/badge/Go_Report-A%2B-00ADD8?style=for-the-badge)](https://goreportcard.com/report/github.com/rebelcore/jellyfin_exporter)
+[![License](https://img.shields.io/badge/license-Apache%202-g?style=for-the-badge&color=8B5CF6)](LICENSE)
 
 Prometheus exporter for Jellyfin Media System metrics exposed
 in Go with pluggable metric collectors.
+
+</div>
+
+---
 
 ## Installation and Usage
 
@@ -206,10 +214,11 @@ label so you can track individual streams.
 
 #### Exporter
 
-| Metric                                       | Type  | Labels    |
-|----------------------------------------------|-------|-----------|
-| `jellyfin_scrape_collector_duration_seconds`  | Gauge | collector |
-| `jellyfin_scrape_collector_success`           | Gauge | collector |
+| Metric                                        | Type  | Labels                                                   |
+|-----------------------------------------------|-------|----------------------------------------------------------|
+| `jellyfin_exporter_build_info`                | Gauge | branch, goarch, goos, goversion, revision, tags, version |
+| `jellyfin_scrape_collector_duration_seconds`  | Gauge | collector                                                |
+| `jellyfin_scrape_collector_success`           | Gauge | collector                                                |
 
 </details>
 
@@ -282,3 +291,19 @@ The exporter supports TLS via a new web configuration file.
 See
 the [exporter-toolkit web-configuration](https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-configuration.md)
 for more details.
+
+## Profiling
+
+**Disabled by default**
+
+The exporter can serve Go [pprof](https://pkg.go.dev/net/http/pprof) profiling
+endpoints under `/debug/pprof/` to help debug CPU or memory issues. They are
+disabled by default and enabled with the `--web.enable-pprof` flag.
+
+```console
+./jellyfin_exporter --web.enable-pprof
+```
+
+When enabled, links to the profiles are also shown on the exporter's landing
+page. Avoid exposing these endpoints publicly, as profiles can reveal internal
+runtime details.

@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/user"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/alecthomas/kingpin/v2"
@@ -275,7 +276,7 @@ func TestRun_BuildsMuxAndCallsListenAndServe(t *testing.T) {
 		WebConfigFile:      ptr(""),
 	}
 
-	if err := run("/metrics", false, 0, false, 1, flags, logger); err != nil {
+	if err := run("/metrics", false, 0, false, 1, false, flags, logger); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !called {
@@ -310,7 +311,7 @@ func TestRun_MetricsPathRoot(t *testing.T) {
 		WebConfigFile:      ptr(""),
 	}
 
-	if err := run("/", false, 0, false, 1, flags, logger); err != nil {
+	if err := run("/", false, 0, false, 1, false, flags, logger); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -338,7 +339,7 @@ func TestRun_RootUserBranch(t *testing.T) {
 		WebConfigFile:      ptr(""),
 	}
 
-	if err := run("/metrics", false, 0, false, 1, flags, logger); err != nil {
+	if err := run("/metrics", false, 0, false, 1, false, flags, logger); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -361,7 +362,7 @@ func TestRun_ListenAndServeError(t *testing.T) {
 		WebConfigFile:      ptr(""),
 	}
 
-	if err := run("/metrics", false, 0, false, 1, flags, logger); err == nil {
+	if err := run("/metrics", false, 0, false, 1, false, flags, logger); err == nil {
 		t.Fatalf("expected error")
 	}
 }
@@ -369,7 +370,7 @@ func TestRun_ListenAndServeError(t *testing.T) {
 func TestRun_NilToolkitFlags(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	if err := run("/metrics", false, 0, false, 1, nil, logger); err == nil {
+	if err := run("/metrics", false, 0, false, 1, false, nil, logger); err == nil {
 		t.Fatalf("expected error")
 	}
 }
@@ -389,7 +390,7 @@ func TestRun_DisableDefaultCollectorsBranch(t *testing.T) {
 		WebConfigFile:      ptr(""),
 	}
 
-	if err := run("/metrics", false, 0, true, 1, flags, logger); err != nil {
+	if err := run("/metrics", false, 0, true, 1, false, flags, logger); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -418,7 +419,7 @@ func TestRun_NewHandlerError(t *testing.T) {
 		WebConfigFile:      ptr(""),
 	}
 
-	if err := run("/metrics", false, 0, false, 1, flags, logger); err == nil {
+	if err := run("/metrics", false, 0, false, 1, false, flags, logger); err == nil {
 		t.Fatalf("expected error")
 	}
 }
@@ -447,7 +448,7 @@ func TestRun_BuildMuxError(t *testing.T) {
 		WebConfigFile:      ptr(""),
 	}
 
-	if err := run("/metrics", false, 0, false, 1, flags, logger); err == nil {
+	if err := run("/metrics", false, 0, false, 1, false, flags, logger); err == nil {
 		t.Fatalf("expected error")
 	}
 }
@@ -460,9 +461,108 @@ func TestBuildMux_LandingPageError(t *testing.T) {
 		return nil, errors.New("boom")
 	}
 
-	_, err := buildMux("/metrics", http.NewServeMux())
+	_, err := buildMux("/metrics", http.NewServeMux(), false)
 	if err == nil {
 		t.Fatalf("expected error")
+	}
+}
+
+func TestHandler_InnerHandlerEnabledCollectorsOnce(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	prevNewCollector := newJellyfinCollector
+	t.Cleanup(func() { newJellyfinCollector = prevNewCollector })
+
+	// Return a fixed collector set regardless of filters, so the test does not
+	// depend on the (global, mutable) collector enable/disable state.
+	newJellyfinCollector = func(*slog.Logger, ...string) (*collector.JellyfinCollector, error) {
+		return &collector.JellyfinCollector{
+			Collectors: map[string]collector.Collector{"alpha": nil, "beta": nil, "gamma": nil},
+		}, nil
+	}
+
+	// newHandler runs innerHandler once with no filters, populating the full
+	// enabled-collector set.
+	h, err := newHandler(false, 0, logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := len(h.enabledCollectors)
+	if want == 0 {
+		t.Fatalf("expected enabledCollectors to be populated")
+	}
+
+	// A request that excludes every collector resolves to an empty filter set,
+	// driving innerHandler down the no-filter branch again. Hit it concurrently:
+	// without the sync.Once guard this races on, and duplicates entries in,
+	// h.enabledCollectors (caught here by -race and the length assertion).
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := h.innerHandler(); err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if got := len(h.enabledCollectors); got != want {
+		t.Fatalf("enabledCollectors changed: want %d entries, got %d (%v)", want, got, h.enabledCollectors)
+	}
+}
+
+func TestBuildMux_Pprof(t *testing.T) {
+	const pprofMarker = "Types of profiles available"
+
+	for _, enabled := range []bool{false, true} {
+		t.Run("enabled="+strconvBool(enabled), func(t *testing.T) {
+			mux, err := buildMux("/metrics", http.NewServeMux(), enabled)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "http://example/debug/pprof/", nil)
+			mux.ServeHTTP(rr, req)
+
+			hasPprof := strings.Contains(rr.Body.String(), pprofMarker)
+			if enabled && !hasPprof {
+				t.Fatalf("pprof enabled: expected pprof index at /debug/pprof/, got status %d body:\n%s", rr.Code, rr.Body.String())
+			}
+			if !enabled && hasPprof {
+				t.Fatalf("pprof disabled: did not expect pprof index to be served")
+			}
+		})
+	}
+}
+
+func TestBuildMux_LandingPageProfilingFollowsFlag(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run("enabled="+strconvBool(enabled), func(t *testing.T) {
+			mux, err := buildMux("/metrics", http.NewServeMux(), enabled)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "http://example/", nil)
+			mux.ServeHTTP(rr, req)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("want status %d for landing page, got %d", http.StatusOK, rr.Code)
+			}
+
+			// The pprof links on the landing page must only appear when the
+			// endpoints are actually registered, so they never 404.
+			hasProfilingLinks := strings.Contains(rr.Body.String(), "debug/pprof/heap")
+			if enabled && !hasProfilingLinks {
+				t.Fatalf("pprof enabled: expected profiling links on the landing page")
+			}
+			if !enabled && hasProfilingLinks {
+				t.Fatalf("pprof disabled: did not expect profiling links on the landing page")
+			}
+		})
 	}
 }
 
