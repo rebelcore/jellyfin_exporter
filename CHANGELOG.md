@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.5.2
+* [ENHANCEMENT] Add `--web.enable-pprof` flag to expose pprof profiling endpoints (disabled by default)
+* [BUG FIX] Fix a data race when a scrape request excludes every collector
+* [BUG FIX] Only show profiling links on the landing page when pprof is enabled
+* [ENHANCEMENT] Limit Jellyfin API response size to avoid unbounded memory use
+* [ENHANCEMENT] Include the build version in the HTTP User-Agent
+* [CLEANUP] Upgrade Go toolchain to 1.26.4
+* [CLEANUP] Pin Alpine base image by digest
+* [CLEANUP] Harden CI/GitHub workflows (timeouts, concurrency, vulnerability scanning)
+* [CLEANUP] Add code documentation and refresh the README
+
 ## 1.5.1
 * [CLEANUP] Upgrade Go toolchain to 1.25.10
 * [CLEANUP] Pin Alpine base image to 3.23.4
