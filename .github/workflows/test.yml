@@ -10,10 +10,15 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   Test:
     name: Test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     container:
@@ -48,6 +53,9 @@ jobs:
 
       - name: Vet
         run: make vet
+
+      - name: Vulnerability check
+        run: make govulncheck
 
       - name: Run tests with coverage
         run: |
@@ -84,6 +92,7 @@ jobs:
   Build:
     name: Build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [Test]
     permissions:
       contents: read

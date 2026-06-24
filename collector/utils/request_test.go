@@ -20,6 +20,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/prometheus/common/version"
 )
 
 func TestGetHTTP_SetsHeadersAndReturnsBody(t *testing.T) {
@@ -107,5 +109,85 @@ func TestGetHTTP_ReadBodyError(t *testing.T) {
 	defaultHTTPClient = &http.Client{Transport: responseTransport{}}
 	if _, err := GetHTTP("http://example.invalid", "token"); err == nil {
 		t.Fatalf("expected error")
+	}
+}
+
+func TestGetHTTP_BodyAtLimitNotTruncated(t *testing.T) {
+	prev := maxResponseBytes
+	t.Cleanup(func() { maxResponseBytes = prev })
+	maxResponseBytes = 32
+
+	want := strings.Repeat("x", int(maxResponseBytes))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(want))
+	}))
+	defer srv.Close()
+
+	body, err := GetHTTP(srv.URL, "token")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(body) != want {
+		t.Fatalf("body at the limit must be returned in full: want %d bytes, have %d", len(want), len(body))
+	}
+}
+
+func TestGetHTTP_BodyExceedsLimitErrors(t *testing.T) {
+	prev := maxResponseBytes
+	t.Cleanup(func() { maxResponseBytes = prev })
+	maxResponseBytes = 32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(strings.Repeat("x", int(maxResponseBytes)+1)))
+	}))
+	defer srv.Close()
+
+	body, err := GetHTTP(srv.URL, "token")
+	if err == nil {
+		t.Fatalf("expected error for over-limit body, got %d bytes", len(body))
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected size-limit error, got: %v", err)
+	}
+	if body != nil {
+		t.Fatalf("expected no body on over-limit error, got %d bytes", len(body))
+	}
+}
+
+func TestGetHTTP_UserAgentIncludesVersion(t *testing.T) {
+	prev := version.Version
+	t.Cleanup(func() { version.Version = prev })
+	version.Version = "9.9.9"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if want, have := "jellyfin_exporter/9.9.9", r.Header.Get("User-Agent"); want != have {
+			t.Errorf("want User-Agent %q, have %q", want, have)
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	if _, err := GetHTTP(srv.URL, "token"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestGetHTTP_Non2xxBodyTruncatedInError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(strings.Repeat("z", maxErrorSnippetBytes*2)))
+	}))
+	defer srv.Close()
+
+	_, err := GetHTTP(srv.URL, "token")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(err.Error(), "...") {
+		t.Fatalf("expected truncated-body marker in error, got: %v", err)
+	}
+	// The oversized response body must not be echoed back in full.
+	if len(err.Error()) > maxErrorSnippetBytes+128 {
+		t.Fatalf("error message not truncated: %d bytes", len(err.Error()))
 	}
 }

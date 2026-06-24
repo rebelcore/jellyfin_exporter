@@ -25,6 +25,9 @@ import (
 	"github.com/rebelcore/jellyfin_exporter/config"
 )
 
+// playingCollector reports per-session "now playing" metrics: play/pause state,
+// percent progress, and — for movies and episodes — position, duration and
+// remaining time in seconds.
 type playingCollector struct {
 	nowPlaying       *prometheus.Desc
 	progress         *prometheus.Desc
@@ -38,6 +41,8 @@ func init() {
 	registerCollector("playing", defaultEnabled, NewPlayingCollector)
 }
 
+// NewPlayingCollector builds the now-playing collector. All of its metrics
+// share one label set so they align per session in queries.
 func NewPlayingCollector(logger *slog.Logger) (Collector, error) {
 	const subsystem = "now_playing"
 
@@ -80,6 +85,9 @@ func NewPlayingCollector(logger *slog.Logger) (Collector, error) {
 	}, nil
 }
 
+// Update emits the now-playing metrics for each currently playing session.
+// Sessions without a resolved title are skipped, and the second-based metrics
+// are emitted only for movies and episodes, where a runtime is meaningful.
 func (c *playingCollector) Update(ch chan<- prometheus.Metric) error {
 	jellyfinURL, jellyfinToken, err := config.JellyfinInfo(c.logger)
 	if err != nil {
@@ -115,6 +123,8 @@ func (c *playingCollector) Update(ch chan<- prometheus.Metric) error {
 			ch <- prometheus.MustNewConstMetric(c.progress, prometheus.GaugeValue, percent, labelValues...)
 		}
 
+		// Position, duration and remaining time are only meaningful for items
+		// with a real runtime, i.e. movies and episodes.
 		if mediaType != "Movie" && mediaType != "Episode" {
 			continue
 		}
@@ -132,6 +142,9 @@ func (c *playingCollector) Update(ch chan<- prometheus.Metric) error {
 	return nil
 }
 
+// nowPlayingValues extracts the label values and the play/paused state
+// (1=playing, 0=paused or unknown) from a session, tolerating an absent
+// PlayState or NowPlayingItem.
 func nowPlayingValues(session utils.JellyfinSession) (state float64, playMethod, mediaType, title, seriesTitle, season, episode string) {
 	if session.PlayState == nil {
 		state = 0.0
@@ -154,6 +167,9 @@ func nowPlayingValues(session utils.JellyfinSession) (state float64, playMethod,
 	return state, playMethod, mediaType, title, seriesTitle, season, episode
 }
 
+// nowPlayingProgressPercent returns playback progress as a 0-100 percentage, or
+// ok=false when position or runtime is unavailable. The result is clamped to
+// [0,100] to absorb minor reporting overshoot.
 func nowPlayingProgressPercent(session utils.JellyfinSession) (float64, bool) {
 	if session.PlayState == nil || session.PlayState.PositionTicks == nil || session.NowPlayingItem == nil || session.NowPlayingItem.RunTimeTicks == nil {
 		return 0, false
@@ -173,12 +189,17 @@ func nowPlayingProgressPercent(session utils.JellyfinSession) (float64, bool) {
 	return percent, true
 }
 
+// Jellyfin reports playback times in "ticks" of 100 nanoseconds, i.e.
+// 10,000,000 ticks per second.
 const ticksPerSecond = 10_000_000
 
+// ticksToSeconds converts a Jellyfin tick count to seconds.
 func ticksToSeconds(ticks int64) float64 {
 	return float64(ticks) / float64(ticksPerSecond)
 }
 
+// nowPlayingPositionSeconds returns the current playback position in seconds,
+// or ok=false when the session reports no position.
 func nowPlayingPositionSeconds(session utils.JellyfinSession) (float64, bool) {
 	if session.PlayState == nil || session.PlayState.PositionTicks == nil {
 		return 0, false
@@ -186,6 +207,8 @@ func nowPlayingPositionSeconds(session utils.JellyfinSession) (float64, bool) {
 	return ticksToSeconds(*session.PlayState.PositionTicks), true
 }
 
+// nowPlayingDurationSeconds returns the media runtime in seconds, or ok=false
+// when the item reports no positive runtime.
 func nowPlayingDurationSeconds(session utils.JellyfinSession) (float64, bool) {
 	if session.NowPlayingItem == nil || session.NowPlayingItem.RunTimeTicks == nil {
 		return 0, false
@@ -196,6 +219,8 @@ func nowPlayingDurationSeconds(session utils.JellyfinSession) (float64, bool) {
 	return ticksToSeconds(*session.NowPlayingItem.RunTimeTicks), true
 }
 
+// nowPlayingRemainingSeconds returns duration minus position (never negative),
+// or ok=false when either input is unavailable.
 func nowPlayingRemainingSeconds(session utils.JellyfinSession) (float64, bool) {
 	pos, ok := nowPlayingPositionSeconds(session)
 	if !ok {

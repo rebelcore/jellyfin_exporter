@@ -9,10 +9,15 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   Build:
     name: Build Release
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     strategy:
@@ -38,6 +43,7 @@ jobs:
   Release:
     name: Create Release
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs:
       - 'Build'
     permissions: {}
@@ -61,6 +67,7 @@ jobs:
   Publish:
     name: Publish Release
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs:
       - 'Release'
     permissions:
