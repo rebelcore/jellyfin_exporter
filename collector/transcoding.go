@@ -26,6 +26,9 @@ import (
 	"github.com/rebelcore/jellyfin_exporter/config"
 )
 
+// transcodingCollector reports active transcoding sessions: a global active
+// flag and session count, plus per-session detail (codecs, bitrate, framerate,
+// resolution, direct-stream flags and transcode reasons) keyed by session_id.
 type transcodingCollector struct {
 	active             *prometheus.Desc
 	sessions           *prometheus.Desc
@@ -46,6 +49,7 @@ func init() {
 	registerCollector("transcoding", defaultDisabled, NewTranscodingCollector)
 }
 
+// NewTranscodingCollector builds the transcoding collector and its descriptors.
 func NewTranscodingCollector(logger *slog.Logger) (Collector, error) {
 	const subsystem = "transcoding"
 	return &transcodingCollector{
@@ -144,6 +148,8 @@ func NewTranscodingCollector(logger *slog.Logger) (Collector, error) {
 	}, nil
 }
 
+// isSessionTranscoding reports whether a session counts as transcoding: either
+// its play method is "Transcode" or the server attached TranscodingInfo.
 func isSessionTranscoding(session utils.JellyfinSession) bool {
 	if session.PlayState != nil && strings.EqualFold(session.PlayState.PlayMethod, "Transcode") {
 		return true
@@ -151,6 +157,9 @@ func isSessionTranscoding(session utils.JellyfinSession) bool {
 	return session.TranscodingInfo != nil
 }
 
+// transcodingLabels builds the label set for jellyfin_transcoding_session_info,
+// using "unknown" for a missing session id and tolerating an absent PlayState,
+// NowPlayingItem or TranscodingInfo.
 func transcodingLabels(session utils.JellyfinSession) []string {
 	sessionID := session.Id
 	if sessionID == "" {
@@ -205,6 +214,9 @@ func transcodingLabels(session utils.JellyfinSession) []string {
 	}
 }
 
+// Update counts the active transcoding sessions, emits per-session detail for
+// each, and reports the jellyfin_transcoding_active and
+// jellyfin_transcoding_sessions summary metrics.
 func (c *transcodingCollector) Update(ch chan<- prometheus.Metric) error {
 	jellyfinURL, jellyfinToken, err := config.JellyfinInfo(c.logger)
 	if err != nil {
@@ -218,6 +230,8 @@ func (c *transcodingCollector) Update(ch chan<- prometheus.Metric) error {
 		return err
 	}
 
+	// Walk the active sessions, emitting per-session detail for each one that is
+	// transcoding and counting them for the summary metrics below.
 	count := 0
 	for _, session := range sessions {
 		if !isSessionTranscoding(session) {
@@ -245,6 +259,8 @@ func (c *transcodingCollector) Update(ch chan<- prometheus.Metric) error {
 			ch <- prometheus.MustNewConstMetric(c.sessionVideoDirect, prometheus.GaugeValue, utils.BoolToFloat(ti.IsVideoDirect), sessionID)
 			ch <- prometheus.MustNewConstMetric(c.sessionAudioDirect, prometheus.GaugeValue, utils.BoolToFloat(ti.IsAudioDirect), sessionID)
 
+			// One series per non-empty transcode reason, so a specific reason
+			// (e.g. "VideoCodecNotSupported") can be matched as a label.
 			for _, reason := range ti.TranscodeReasons {
 				reason = strings.TrimSpace(reason)
 				if reason == "" {
@@ -255,6 +271,7 @@ func (c *transcodingCollector) Update(ch chan<- prometheus.Metric) error {
 		}
 	}
 
+	// Summary metrics: a single active flag plus the total transcoding count.
 	active := 0.0
 	if count > 0 {
 		active = 1.0
