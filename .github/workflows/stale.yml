@@ -13,6 +13,7 @@ jobs:
   Issues:
     name: Check for stale issues
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       issues: write
       pull-requests: write
@@ -41,6 +42,7 @@ jobs:
   PullRequests:
     name: Check PRs with merge conflicts
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       pull-requests: write
     steps:
