@@ -19,7 +19,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Check stale Issues
-        uses: actions/stale@eb5cf3af3ac0a1aa4c9c45633dd1ae542a27a899 # v10
+        uses: actions/stale@1e223db275d687790206a7acac4d1a11bd6fe629 # v10
         with:
           ascending: true
           days-before-stale: 120
@@ -47,7 +47,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Check stale Pull Request
-        uses: actions/stale@eb5cf3af3ac0a1aa4c9c45633dd1ae542a27a899 # v10
+        uses: actions/stale@1e223db275d687790206a7acac4d1a11bd6fe629 # v10
         with:
           ascending: true
           operations-per-run: 150
