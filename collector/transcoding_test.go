@@ -237,3 +237,58 @@ func TestTranscodingCollectorUpdate(t *testing.T) {
 		t.Fatalf("expected 13 metrics, got %d", metrics)
 	}
 }
+
+// TestIsSessionTranscoding_RemuxIsNotTranscoding pins the distinction Jellyfin
+// itself draws: it attaches TranscodingInfo to every ffmpeg job, including a
+// container remux that copies both streams, which its dashboard labels
+// "Remuxing". Counting those inflates the active/session gauges operators alert
+// on, so only a real re-encode counts.
+func TestIsSessionTranscoding_RemuxIsNotTranscoding(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		session utils.JellyfinSession
+		want    bool
+	}{
+		{
+			name:    "remux copies both streams",
+			session: utils.JellyfinSession{TranscodingInfo: &utils.TranscodingInfo{VideoCodec: "h264", AudioCodec: "aac", IsVideoDirect: true, IsAudioDirect: true}},
+			want:    false,
+		},
+		{
+			name:    "video re-encoded",
+			session: utils.JellyfinSession{TranscodingInfo: &utils.TranscodingInfo{VideoCodec: "h264", IsVideoDirect: false, IsAudioDirect: true}},
+			want:    true,
+		},
+		{
+			name:    "audio re-encoded",
+			session: utils.JellyfinSession{TranscodingInfo: &utils.TranscodingInfo{VideoCodec: "h264", IsVideoDirect: true, IsAudioDirect: false}},
+			want:    true,
+		},
+		{
+			name:    "audio-only remux has no video codec",
+			session: utils.JellyfinSession{TranscodingInfo: &utils.TranscodingInfo{AudioCodec: "flac", IsAudioDirect: true}},
+			want:    false,
+		},
+		{
+			name:    "audio-only re-encode has no video codec",
+			session: utils.JellyfinSession{TranscodingInfo: &utils.TranscodingInfo{AudioCodec: "mp3", IsAudioDirect: false}},
+			want:    true,
+		},
+		{
+			name:    "play method reported as transcode",
+			session: utils.JellyfinSession{PlayState: &utils.PlayState{PlayMethod: "Transcode"}},
+			want:    true,
+		},
+		{
+			name:    "idle session",
+			session: utils.JellyfinSession{},
+			want:    false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if want, have := tc.want, isSessionTranscoding(tc.session); want != have {
+				t.Fatalf("want %v, have %v", want, have)
+			}
+		})
+	}
+}
