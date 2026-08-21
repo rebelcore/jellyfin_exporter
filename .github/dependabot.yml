@@ -1,20 +1,55 @@
 version: 2
 
 updates:
+  # Go modules: minor/patch bumps are batched into one weekly PR; major bumps
+  # still get their own PR so they can be reviewed individually.
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/New_York"
     open-pull-requests-limit: 10
+    groups:
+      go-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    # Supply-chain buffer: don't adopt a release in its first week so yanked or
+    # compromised releases have time to surface. Security updates are exempt.
+    cooldown:
+      default-days: 7
 
+  # GitHub Actions: same policy as Go modules.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/New_York"
     open-pull-requests-limit: 10
+    groups:
+      actions-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    cooldown:
+      default-days: 7
 
+  # Base image: no cooldown on purpose. A re-pushed alpine tag is usually a
+  # security rebuild (digest bump) and those don't flow through the
+  # security-updates path, so a cooldown would only delay them.
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/New_York"
     open-pull-requests-limit: 10
