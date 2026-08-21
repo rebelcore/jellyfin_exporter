@@ -35,16 +35,26 @@ var (
 // JellyfinInfo returns the configured Jellyfin base URL and API token, or an
 // error if either is blank. Collectors call it at the start of every Update so
 // a missing token surfaces as a failed scrape instead of a malformed request.
+//
+// Both values are normalised here rather than at each call site: surrounding
+// whitespace is trimmed (a token read from a file or an environment variable
+// often carries a trailing newline, which would otherwise be rejected by
+// net/http as an invalid header value on every request) and any trailing
+// slashes are stripped from the address, so the "%s/Path" URLs the collectors
+// build never contain an empty path segment.
 func JellyfinInfo(logger *slog.Logger) (string, string, error) {
-	logger.Debug("Jellyfin URL", "Value", *jellyfinURL)
-	logger.Debug("Jellyfin token configured", "configured", *jellyfinToken != "")
+	url := strings.TrimRight(strings.TrimSpace(*jellyfinURL), "/")
+	token := strings.TrimSpace(*jellyfinToken)
 
-	if strings.TrimSpace(*jellyfinToken) == "" {
+	logger.Debug("Jellyfin URL", "Value", url)
+	logger.Debug("Jellyfin token configured", "configured", token != "")
+
+	if token == "" {
 		return "", "", errors.New("missing jellyfin token")
 	}
-	if strings.TrimSpace(*jellyfinURL) == "" {
+	if url == "" {
 		return "", "", errors.New("missing jellyfin address")
 	}
 
-	return *jellyfinURL, *jellyfinToken, nil
+	return url, token, nil
 }
