@@ -20,8 +20,9 @@
 // enabled collectors (optionally narrowed by an explicit filter list), and
 // JellyfinCollector.Collect runs them concurrently, recording a per-collector
 // duration and success metric. Individual collectors implement the Collector
-// interface and may return ErrNoData to signal "nothing to report" without
-// being counted as a failure.
+// interface and may return ErrNoData to signal "nothing to report", which is
+// logged at debug level rather than as a failure — though, as for any returned
+// error, the collector's success metric is still 0.
 package collector
 
 import (
@@ -116,6 +117,35 @@ func DisableDefaultCollectors() {
 	for c := range collectorState {
 		if _, ok := forcedCollectors[c]; !ok {
 			*collectorState[c] = false
+		}
+	}
+}
+
+// SnapshotCollectorStates captures which collectors are currently enabled and
+// which were explicitly forced, returning a function that restores both.
+//
+// Collector state is process-wide, so a caller that flips it — most notably
+// DisableDefaultCollectors — changes it for everything that follows. Tests use
+// this to undo that effect and stay independent of the order they run in.
+func SnapshotCollectorStates() func() {
+	savedState := make(map[string]bool, len(collectorState))
+	for name, enabled := range collectorState {
+		savedState[name] = *enabled
+	}
+	savedForced := make(map[string]bool, len(forcedCollectors))
+	for name, forced := range forcedCollectors {
+		savedForced[name] = forced
+	}
+
+	return func() {
+		for name, enabled := range savedState {
+			if state, ok := collectorState[name]; ok {
+				*state = enabled
+			}
+		}
+		clear(forcedCollectors)
+		for name, forced := range savedForced {
+			forcedCollectors[name] = forced
 		}
 	}
 }
@@ -230,7 +260,8 @@ type Collector interface {
 }
 
 // ErrNoData is returned by a collector's Update when it has nothing to report
-// for this scrape but did not actually fail.
+// for this scrape. It is logged at debug rather than error level, but like any
+// other returned error it still records the collector's scrape as unsuccessful.
 var ErrNoData = errors.New("collector returned no data")
 
 // IsNoDataError reports whether err is, or wraps, ErrNoData.

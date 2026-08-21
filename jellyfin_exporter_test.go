@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/user"
 	"strings"
@@ -384,6 +385,11 @@ func TestRun_DisableDefaultCollectorsBranch(t *testing.T) {
 	t.Cleanup(func() { newLandingPage = prevNewLandingPage })
 	listenAndServe = func(_ *http.Server, _ *web.FlagConfig, _ *slog.Logger) error { return nil }
 
+	// run() with disableDefaultCollectors disables every collector for the rest
+	// of the process, so restore the previous state or later tests find no
+	// collectors enabled and fail depending on the order they run in.
+	t.Cleanup(collector.SnapshotCollectorStates())
+
 	flags := &web.FlagConfig{
 		WebListenAddresses: ptr([]string{":0"}),
 		WebSystemdSocket:   ptr(false),
@@ -612,5 +618,74 @@ func TestVersionString_IncludesGitTag(t *testing.T) {
 	s := versionString("jellyfin_exporter")
 	if !strings.Contains(s, "git=v1.2.3") {
 		t.Fatalf("expected version output to include git tag, got:\n%s", s)
+	}
+}
+
+// TestHandler_ServeHTTP_ExcludeAllCollectors guards the exclude[] semantics: an
+// empty filter list means "every enabled collector" to innerHandler, so a query
+// that excludes them all must be rejected rather than silently serving the
+// complete set — the exact inverse of what was asked for.
+func TestHandler_ServeHTTP_ExcludeAllCollectors(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	h, err := newHandler(false, 0, logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(h.enabledCollectors) == 0 {
+		t.Fatalf("expected some enabled collectors")
+	}
+
+	query := url.Values{}
+	for _, c := range h.enabledCollectors {
+		query.Add("exclude[]", c)
+	}
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics?"+query.Encode(), nil))
+
+	if want, have := http.StatusBadRequest, rec.Code; want != have {
+		t.Fatalf("want status %d, have %d. Body:\n%s", want, have, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "jellyfin_up") {
+		t.Fatalf("excluding every collector still served collector metrics:\n%s", rec.Body.String())
+	}
+}
+
+// TestValidateMetricsPath covers the values http.ServeMux would panic on, which
+// would otherwise crash the exporter at startup instead of returning an error.
+func TestValidateMetricsPath(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		path        string
+		enablePprof bool
+		wantErr     bool
+	}{
+		{name: "default", path: "/metrics"},
+		{name: "root", path: "/"},
+		{name: "nested", path: "/a/b/metrics"},
+		{name: "pprof disabled allows pprof path", path: "/debug/pprof/x"},
+		{name: "empty", path: "", wantErr: true},
+		{name: "missing leading slash", path: "metrics", wantErr: true},
+		{name: "leading space", path: " /metrics", wantErr: true},
+		{name: "embedded space", path: "/met rics", wantErr: true},
+		{name: "wildcard", path: "/m/{id}", wantErr: true},
+		{name: "pprof conflict", path: "/debug/pprof/", enablePprof: true, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateMetricsPath(tc.path, tc.enablePprof)
+			if tc.wantErr && err == nil {
+				t.Fatalf("want error for %q, got none", tc.path)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected error for %q: %v", tc.path, err)
+			}
+			// A path validateMetricsPath accepts must not panic the mux.
+			if err == nil {
+				if _, err := buildMux(tc.path, http.NotFoundHandler(), tc.enablePprof); err != nil {
+					t.Fatalf("buildMux rejected accepted path %q: %v", tc.path, err)
+				}
+			}
+		})
 	}
 }

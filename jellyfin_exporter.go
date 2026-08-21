@@ -28,7 +28,6 @@ import (
 	"os/user"
 	"runtime"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -120,18 +119,36 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// collect[] names the collectors to run directly; exclude[] is the inverse,
 	// so convert it into a keep-list of every enabled collector except those
 	// named.
-	filters := &collects
+	filters := collects
 	if len(excludes) > 0 {
-		f := []string{}
-		for _, c := range h.enabledCollectors {
-			if !slices.Contains(excludes, c) {
-				f = append(f, c)
+		// A name that matches no enabled collector cannot narrow anything, so
+		// warn rather than silently serving the full set for a typo. It stays
+		// non-fatal because excluding an already-disabled collector is a
+		// legitimate no-op.
+		for _, e := range excludes {
+			if !slices.Contains(h.enabledCollectors, e) {
+				h.logger.Warn("Ignoring unknown or disabled collector in exclude[]", "collector", e)
 			}
 		}
-		filters = &f
+
+		filters = nil
+		for _, c := range h.enabledCollectors {
+			if !slices.Contains(excludes, c) {
+				filters = append(filters, c)
+			}
+		}
+
+		// Excluding every enabled collector leaves nothing to collect. That must
+		// not fall through to innerHandler, where an empty filter list means
+		// "every enabled collector" — the exact inverse of what was asked.
+		if len(filters) == 0 {
+			h.logger.Debug("rejecting exclude query that removes every collector")
+			http.Error(w, "All enabled collectors have been excluded.", http.StatusBadRequest)
+			return
+		}
 	}
 
-	filteredHandler, err := h.innerHandler(*filters...)
+	filteredHandler, err := h.innerHandler(filters...)
 	if err != nil {
 		h.logger.Warn("Couldn't create filtered metrics handler:", "err", err)
 		http.Error(w, fmt.Sprintf("Couldn't create filtered metrics handler: %s", err), http.StatusBadRequest)
@@ -160,7 +177,7 @@ func (h *handler) innerHandler(filters ...string) (http.Handler, error) {
 			for n := range nc.Collectors {
 				h.enabledCollectors = append(h.enabledCollectors, n)
 			}
-			sort.Strings(h.enabledCollectors)
+			slices.Sort(h.enabledCollectors)
 			for _, c := range h.enabledCollectors {
 				h.logger.Info(c)
 			}
@@ -204,18 +221,51 @@ func (h *handler) innerHandler(filters ...string) (http.Handler, error) {
 	return handler, nil
 }
 
+// pprofPrefix is the route net/http/pprof is mounted under when profiling is
+// enabled; the metrics path must not collide with it.
+const pprofPrefix = "/debug/pprof/"
+
+// validateMetricsPath rejects --web.telemetry-path values that http.ServeMux
+// would panic on: it must be a plain absolute path, with no whitespace and no
+// wildcard syntax, and it must not collide with the pprof routes.
+func validateMetricsPath(metricsPath string, enablePprof bool) error {
+	if metricsPath == "" {
+		return errors.New("web.telemetry-path must not be empty")
+	}
+	if !strings.HasPrefix(metricsPath, "/") {
+		return fmt.Errorf("web.telemetry-path %q must start with %q", metricsPath, "/")
+	}
+	if strings.ContainsAny(metricsPath, " \t\r\n") {
+		return fmt.Errorf("web.telemetry-path %q must not contain whitespace", metricsPath)
+	}
+	if strings.ContainsAny(metricsPath, "{}") {
+		return fmt.Errorf("web.telemetry-path %q must not contain wildcard syntax", metricsPath)
+	}
+	if enablePprof && strings.HasPrefix(metricsPath, pprofPrefix) {
+		return fmt.Errorf("web.telemetry-path %q conflicts with the pprof endpoints at %q", metricsPath, pprofPrefix)
+	}
+	return nil
+}
+
 // buildMux assembles the HTTP routes: the metrics handler at metricsPath, the
 // pprof endpoints when enablePprof is set, and a landing page at "/" (unless
 // metrics are already served there). The landing page advertises the pprof
 // links only when profiling is enabled, so they never point at a 404.
 func buildMux(metricsPath string, metricsHandler http.Handler, enablePprof bool) (*http.ServeMux, error) {
+	// http.ServeMux panics on a malformed pattern, so validate the operator's
+	// value first and return an error instead of crashing at startup with a
+	// stack trace.
+	if err := validateMetricsPath(metricsPath, enablePprof); err != nil {
+		return nil, err
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle(metricsPath, metricsHandler)
 
 	// Profiling endpoints, registered only when enabled — the same routes
 	// net/http/pprof installs on the default mux.
 	if enablePprof {
-		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc(pprofPrefix, pprof.Index)
 		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
 		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
 		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
