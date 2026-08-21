@@ -146,13 +146,7 @@ func (c *playingCollector) Update(ch chan<- prometheus.Metric) error {
 // (1=playing, 0=paused or unknown) from a session, tolerating an absent
 // PlayState or NowPlayingItem.
 func nowPlayingValues(session utils.JellyfinSession) (state float64, playMethod, mediaType, title, seriesTitle, season, episode string) {
-	if session.PlayState == nil {
-		state = 0.0
-	} else if session.PlayState.IsPaused {
-		state = 0.0
-	} else {
-		state = 1.0
-	}
+	state = utils.BoolToFloat(session.PlayState != nil && !session.PlayState.IsPaused)
 	if session.PlayState != nil {
 		playMethod = strings.ToLower(session.PlayState.PlayMethod)
 	}

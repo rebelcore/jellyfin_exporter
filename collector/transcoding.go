@@ -272,10 +272,7 @@ func (c *transcodingCollector) Update(ch chan<- prometheus.Metric) error {
 	}
 
 	// Summary metrics: a single active flag plus the total transcoding count.
-	active := 0.0
-	if count > 0 {
-		active = 1.0
-	}
+	active := utils.BoolToFloat(count > 0)
 	c.logger.Debug("Jellyfin transcoding state", "active", active, "sessions", count)
 	ch <- prometheus.MustNewConstMetric(c.active, prometheus.GaugeValue, active)
 	ch <- prometheus.MustNewConstMetric(c.sessions, prometheus.GaugeValue, float64(count))

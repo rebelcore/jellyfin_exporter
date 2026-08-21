@@ -142,10 +142,7 @@ func (c *tasksCollector) Update(ch chan<- prometheus.Metric) error {
 		// Current run state: 1 when Running, with the textual state kept as a
 		// label so other states (Idle, Cancelling) stay queryable.
 		if task.State != "" {
-			state := 0.0
-			if task.State == "Running" {
-				state = 1.0
-			}
+			state := utils.BoolToFloat(task.State == "Running")
 			ch <- prometheus.MustNewConstMetric(c.state, prometheus.GaugeValue, state, append(labelValues, task.State)...)
 		}
 
@@ -169,10 +166,7 @@ func (c *tasksCollector) Update(ch chan<- prometheus.Metric) error {
 
 			// Last-run outcome: 1 when Completed, with the raw status as a label.
 			if res.Status != "" {
-				status := 0.0
-				if res.Status == "Completed" {
-					status = 1.0
-				}
+				status := utils.BoolToFloat(res.Status == "Completed")
 				ch <- prometheus.MustNewConstMetric(c.lastRunStatus, prometheus.GaugeValue, status, append(labelValues, res.Status)...)
 			}
 		}

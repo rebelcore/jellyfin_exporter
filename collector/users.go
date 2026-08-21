@@ -145,16 +145,14 @@ func (c *userCollector) Update(ch chan<- prometheus.Metric) error {
 	// Fetch the account roster and the active sessions independently: a failure
 	// in one still reports the other, and both errors are joined at the end so
 	// the scrape is still marked unsuccessful.
-	userAccounts, err := getUserAccount(jellyfinURL, jellyfinToken)
-	errAccounts := err
-	if err != nil {
-		c.logger.Error("Failed to get user accounts", "error", err)
+	userAccounts, errAccounts := getUserAccount(jellyfinURL, jellyfinToken)
+	if errAccounts != nil {
+		c.logger.Error("Failed to get user accounts", "error", errAccounts)
 	}
 
-	activeSessions, err := utils.GetActiveSessions(jellyfinURL, jellyfinToken)
-	errActive := err
-	if err != nil {
-		c.logger.Error("Failed to get user sessions", "error", err)
+	activeSessions, errActive := utils.GetActiveSessions(jellyfinURL, jellyfinToken)
+	if errActive != nil {
+		c.logger.Error("Failed to get user sessions", "error", errActive)
 	}
 
 	if errAccounts == nil {

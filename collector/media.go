@@ -77,7 +77,7 @@ func (c *mediaCollector) Update(ch chan<- prometheus.Metric) error {
 		return err
 	}
 	for name, count := range counts {
-		itemName := strings.ReplaceAll(name, "Count", "")
+		itemName := strings.TrimSuffix(name, "Count")
 		c.logger.Debug("Jellyfin Media System Total", "type", itemName, "count", count)
 		ch <- prometheus.MustNewConstMetric(
 			c.mediaItems,
