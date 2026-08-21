@@ -16,9 +16,10 @@
 package collector
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/alecthomas/kingpin/v2"
@@ -31,7 +32,7 @@ import (
 // jellyfinReportDays is the look-back window (in days) for the Playback
 // Reporting query, defaulting to ~100 years so the full history is included.
 var (
-	jellyfinReportDays = kingpin.Flag("collector.activity.days", "Jellyfin Playback Reporting search in days (Default to 100 Years).").Default("36525").String()
+	jellyfinReportDays = kingpin.Flag("collector.activity.days", "Jellyfin Playback Reporting search in days (Default to 100 Years).").Default("36525").Int()
 )
 
 // JellyfinUserActivity is one row from the Playback Reporting plugin's
@@ -82,15 +83,13 @@ func NewActivityCollector(logger *slog.Logger) (Collector, error) {
 
 // getUserActivity queries the Playback Reporting plugin's user_activity endpoint
 // over the given look-back window (in days) and decodes the result.
-func getUserActivity(jellyfinURL, jellyfinToken, days string) ([]JellyfinUserActivity, error) {
-	jellyfinAPIURL := fmt.Sprintf("%s/user_usage_stats/user_activity?days=%s", jellyfinURL, days)
-	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	if err != nil {
-		return nil, err
-	}
+func getUserActivity(jellyfinURL, jellyfinToken string, days int) ([]JellyfinUserActivity, error) {
+	values := url.Values{}
+	values.Set("days", strconv.Itoa(days))
+	jellyfinAPIURL := fmt.Sprintf("%s/user_usage_stats/user_activity?%s", jellyfinURL, values.Encode())
 	var activityList []JellyfinUserActivity
-	if err := json.Unmarshal(rawBody, &activityList); err != nil {
-		return nil, fmt.Errorf("unexpected response from Jellyfin API: %w", err)
+	if err := utils.GetJSON(jellyfinAPIURL, jellyfinToken, &activityList); err != nil {
+		return nil, err
 	}
 	return activityList, nil
 }
