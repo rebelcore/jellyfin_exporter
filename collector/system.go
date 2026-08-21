@@ -104,6 +104,11 @@ func getSystemInfo(jellyfinURL, jellyfinToken string) (*jellyfinSystemInfo, erro
 // Update scrapes liveness and server information, emitting jellyfin_up,
 // jellyfin_system_info and jellyfin_system_pending_restart. A failure talking to
 // the server is returned so the scrape is marked unsuccessful.
+//
+// jellyfin_up is the liveness signal operators alert on, so it is always
+// emitted: an unreachable or erroring server is the 0 case, not a missing
+// series. It is therefore sent before the /System/Info lookup, whose failure
+// must not discard an already-known liveness value.
 func (c *systemCollector) Update(ch chan<- prometheus.Metric) error {
 	jellyfinURL, jellyfinToken, err := config.JellyfinInfo(c.logger)
 	if err != nil {
@@ -111,10 +116,14 @@ func (c *systemCollector) Update(ch chan<- prometheus.Metric) error {
 		return err
 	}
 
-	ping, err := getSystemPing(jellyfinURL, jellyfinToken)
-	if err != nil {
-		c.logger.Error("Failed to get system ping", "error", err)
-		return err
+	ping, pingErr := getSystemPing(jellyfinURL, jellyfinToken)
+	if pingErr != nil {
+		c.logger.Error("Failed to get system ping", "error", pingErr)
+		ping = 0
+	}
+	ch <- prometheus.MustNewConstMetric(c.systemUp, prometheus.GaugeValue, ping)
+	if pingErr != nil {
+		return pingErr
 	}
 
 	info, err := getSystemInfo(jellyfinURL, jellyfinToken)
@@ -123,7 +132,6 @@ func (c *systemCollector) Update(ch chan<- prometheus.Metric) error {
 		return err
 	}
 
-	ch <- prometheus.MustNewConstMetric(c.systemUp, prometheus.GaugeValue, ping)
 	ch <- prometheus.MustNewConstMetric(
 		c.info,
 		prometheus.GaugeValue,
