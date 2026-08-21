@@ -39,8 +39,10 @@ func TestFileDescriptorLeak(t *testing.T) {
 		t.Skipf("jellyfin_exporter binary not available, try to run `make build` first: %s", err)
 	}
 
-	exporter := exec.Command(binary, "--web.listen-address", address)
-	test := func(pid int) error {
+	// --jellyfin.token is a required flag: without it the exporter exits during
+	// flag parsing and the test can only ever fail with "can't start command".
+	exporter := exec.Command(binary, "--jellyfin.token=TOKEN", "--web.listen-address", address)
+	test := func(_ int) error {
 		if err := queryExporter(address); err != nil {
 			return err
 		}
@@ -57,23 +59,14 @@ func TestFileDescriptorLeak(t *testing.T) {
 	}
 }
 
-func TestHandlingOfDuplicatedMetrics(t *testing.T) {
+// TestScrapeSucceeds checks that a freshly started exporter serves /metrics
+// successfully. It replaces a test inherited from node_exporter that wrote two
+// .prom files to a temporary directory to exercise the textfile collector's
+// duplicate handling — this exporter has no textfile collector and never read
+// those files, so the test asserted nothing beyond what this one does.
+func TestScrapeSucceeds(t *testing.T) {
 	if _, err := os.Stat(binary); err != nil {
 		t.Skipf("jellyfin_exporter binary not available, try to run `make build` first: %s", err)
-	}
-
-	dir, err := os.MkdirTemp("", "jellyfin-exporter")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-
-	content := []byte("dummy_metric 1\n")
-	if err := os.WriteFile(filepath.Join(dir, "a.prom"), content, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "b.prom"), content, 0600); err != nil {
-		t.Fatal(err)
 	}
 
 	exporter := exec.Command(binary, "--jellyfin.token=TOKEN", "--web.listen-address", address)
@@ -126,7 +119,10 @@ func runCommandAndTests(cmd *exec.Cmd, address string, fn func(pid int) error) e
 
 	err := <-errc
 	if cmd.Process != nil {
-		cmd.Process.Kill()
+		_ = cmd.Process.Kill()
+		// Reap the killed child; without this the process is left as a zombie
+		// for as long as the test binary runs.
+		_ = cmd.Wait()
 	}
 	return err
 }
