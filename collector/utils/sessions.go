@@ -14,7 +14,6 @@
 package utils
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -115,13 +114,9 @@ func GetNowPlayingSessions(jellyfinURL, jellyfinToken string) ([]JellyfinSession
 // array into JellyfinSession values.
 func getSessions(jellyfinURL, jellyfinToken string, query url.Values) ([]JellyfinSession, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/Sessions?%s", jellyfinURL, query.Encode())
-	rawBody, err := GetHTTP(jellyfinAPIURL, jellyfinToken)
-	if err != nil {
-		return nil, err
-	}
 	var sessions []JellyfinSession
-	if err := json.Unmarshal(rawBody, &sessions); err != nil {
-		return nil, fmt.Errorf("unexpected response from Jellyfin API: %w", err)
+	if err := GetJSON(jellyfinAPIURL, jellyfinToken, &sessions); err != nil {
+		return nil, err
 	}
 	return sessions, nil
 }

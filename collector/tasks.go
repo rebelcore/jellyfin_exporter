@@ -16,7 +16,6 @@
 package collector
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -104,14 +103,9 @@ func NewTasksCollector(logger *slog.Logger) (Collector, error) {
 // getScheduledTasks fetches and decodes /ScheduledTasks.
 func getScheduledTasks(jellyfinURL, jellyfinToken string) ([]jellyfinTaskInfo, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/ScheduledTasks", jellyfinURL)
-	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	if err != nil {
-		return nil, err
-	}
-
 	var tasks []jellyfinTaskInfo
-	if err := json.Unmarshal(rawBody, &tasks); err != nil {
-		return nil, fmt.Errorf("unexpected response from Jellyfin API: %w", err)
+	if err := utils.GetJSON(jellyfinAPIURL, jellyfinToken, &tasks); err != nil {
+		return nil, err
 	}
 	return tasks, nil
 }

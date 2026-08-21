@@ -16,7 +16,6 @@
 package collector
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -95,13 +94,9 @@ func getSystemPing(jellyfinURL, jellyfinToken string) (float64, error) {
 // getSystemInfo fetches and decodes /System/Info.
 func getSystemInfo(jellyfinURL, jellyfinToken string) (*jellyfinSystemInfo, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/System/Info", jellyfinURL)
-	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	if err != nil {
-		return nil, err
-	}
 	var info jellyfinSystemInfo
-	if err := json.Unmarshal(rawBody, &info); err != nil {
-		return nil, fmt.Errorf("unexpected response from Jellyfin API: %w", err)
+	if err := utils.GetJSON(jellyfinAPIURL, jellyfinToken, &info); err != nil {
+		return nil, err
 	}
 	return &info, nil
 }

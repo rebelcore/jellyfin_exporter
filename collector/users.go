@@ -16,7 +16,6 @@
 package collector
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -92,24 +91,22 @@ func NewUsersCollector(logger *slog.Logger) (Collector, error) {
 // parsing LastActivityDate into a Unix timestamp where present.
 func getUserAccount(jellyfinURL, jellyfinToken string) ([]Account, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/Users", jellyfinURL)
-	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	if err != nil {
-		return nil, err
-	}
-
 	var users []JellyfinUser
-	if err := json.Unmarshal(rawBody, &users); err != nil {
-		return nil, fmt.Errorf("unexpected response from Jellyfin API: %w", err)
+	if err := utils.GetJSON(jellyfinAPIURL, jellyfinToken, &users); err != nil {
+		return nil, err
 	}
 
 	accounts := make([]Account, 0, len(users))
 	for _, u := range users {
 		// Convert the last-activity timestamp to a Unix epoch string, leaving it
 		// empty when the user has never been active or the date can't be parsed.
+		// Jellyfin omits the field for a user who never signed in; the zero-date
+		// check is belt and braces so a sentinel date could never be published
+		// as the nonsensical epoch -62135596800.
 		userLastActive := ""
 		if u.LastActivityDate != "" {
 			t, err := time.Parse(time.RFC3339, u.LastActivityDate)
-			if err == nil {
+			if err == nil && !t.IsZero() {
 				userLastActive = strconv.FormatInt(t.Unix(), 10)
 			}
 		}

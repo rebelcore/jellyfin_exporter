@@ -16,7 +16,6 @@
 package collector
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -56,13 +55,9 @@ func NewMediaCollector(logger *slog.Logger) (Collector, error) {
 // keys (MovieCount, SeriesCount, ...) to their totals.
 func getMediaCounts(jellyfinURL, jellyfinToken string) (map[string]float64, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/Items/Counts", jellyfinURL)
-	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	if err != nil {
-		return nil, err
-	}
 	var counts map[string]float64
-	if err := json.Unmarshal(rawBody, &counts); err != nil {
-		return nil, fmt.Errorf("unexpected response from Jellyfin API: %w", err)
+	if err := utils.GetJSON(jellyfinAPIURL, jellyfinToken, &counts); err != nil {
+		return nil, err
 	}
 	return counts, nil
 }

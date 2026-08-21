@@ -16,7 +16,6 @@
 package collector
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -91,13 +90,9 @@ func NewStorageCollector(logger *slog.Logger) (Collector, error) {
 // getSystemStorage fetches and decodes /System/Info/Storage.
 func getSystemStorage(jellyfinURL, jellyfinToken string) (*jellyfinSystemStorage, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/System/Info/Storage", jellyfinURL)
-	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	if err != nil {
-		return nil, err
-	}
 	var storage jellyfinSystemStorage
-	if err := json.Unmarshal(rawBody, &storage); err != nil {
-		return nil, fmt.Errorf("unexpected response from Jellyfin API: %w", err)
+	if err := utils.GetJSON(jellyfinAPIURL, jellyfinToken, &storage); err != nil {
+		return nil, err
 	}
 	return &storage, nil
 }

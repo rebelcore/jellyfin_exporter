@@ -14,6 +14,7 @@
 package utils
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -48,6 +49,20 @@ func userAgent() string {
 		return "jellyfin_exporter/" + v
 	}
 	return "jellyfin_exporter"
+}
+
+// GetJSON performs an authenticated GET against the Jellyfin API and decodes the
+// JSON response into v. It is the single place the fetch-then-decode sequence
+// lives, so every collector reports a malformed response identically.
+func GetJSON(url, token string, v any) error {
+	rawBody, err := GetHTTP(url, token)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(rawBody, v); err != nil {
+		return fmt.Errorf("unexpected response from Jellyfin API: %w", err)
+	}
+	return nil
 }
 
 // GetHTTP performs an authenticated GET against the Jellyfin API and returns the
