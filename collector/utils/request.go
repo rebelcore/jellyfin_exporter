@@ -84,9 +84,19 @@ func GetHTTP(url, token string) ([]byte, error) {
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		msg := strings.TrimSpace(string(body))
-		if len(msg) > maxErrorSnippetBytes {
-			msg = msg[:maxErrorSnippetBytes] + "..."
+		// Cut the raw bytes down before converting, so a large body is not
+		// copied whole just to quote a snippet of it. Trimming to a rune
+		// boundary keeps the message valid UTF-8 when the cut lands in the
+		// middle of a multi-byte character.
+		snippet := body
+		truncated := false
+		if len(snippet) > maxErrorSnippetBytes {
+			snippet = snippet[:maxErrorSnippetBytes]
+			truncated = true
+		}
+		msg := strings.TrimSpace(strings.ToValidUTF8(string(snippet), ""))
+		if truncated {
+			msg += "..."
 		}
 		return nil, fmt.Errorf("unexpected HTTP status %s: %s", resp.Status, msg)
 	}
