@@ -93,6 +93,18 @@ type JellyfinSession struct {
 	TranscodingInfo    *TranscodingInfo `json:"TranscodingInfo"`
 }
 
+// SessionID returns the session's identifier, falling back to "unknown" when
+// the server reported none. Per-session metrics are keyed by this value, so it
+// must be non-empty: two sessions that agree on every other label would
+// otherwise produce the same label set and the registry would reject the
+// duplicate, silently dropping one of them.
+func (s JellyfinSession) SessionID() string {
+	if s.Id == "" {
+		return "unknown"
+	}
+	return s.Id
+}
+
 // GetActiveSessions returns every session seen active within the last 60
 // seconds, including idle ones (those without a NowPlayingItem).
 func GetActiveSessions(jellyfinURL, jellyfinToken string) ([]JellyfinSession, error) {

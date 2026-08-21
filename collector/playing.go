@@ -46,8 +46,11 @@ func init() {
 func NewPlayingCollector(logger *slog.Logger) (Collector, error) {
 	const subsystem = "now_playing"
 
+	// session_id keeps the series distinct: without it two sessions of the same
+	// user on same-named devices playing the same item share one label set, and
+	// the registry drops all but the first.
 	labelNames := []string{
-		"user_id", "username", "device", "type", "title", "series_title", "series_season", "series_episode", "method",
+		"session_id", "user_id", "username", "device", "type", "title", "series_title", "series_season", "series_episode", "method",
 	}
 
 	return &playingCollector{
@@ -107,6 +110,7 @@ func (c *playingCollector) Update(ch chan<- prometheus.Metric) error {
 		c.logger.Debug("Jellyfin Now Playing", "User", session.UserName, "Title", title)
 
 		labelValues := []string{
+			session.SessionID(),
 			session.UserId,
 			session.UserName,
 			session.DeviceName,

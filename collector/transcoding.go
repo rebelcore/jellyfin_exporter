@@ -161,10 +161,7 @@ func isSessionTranscoding(session utils.JellyfinSession) bool {
 // using "unknown" for a missing session id and tolerating an absent PlayState,
 // NowPlayingItem or TranscodingInfo.
 func transcodingLabels(session utils.JellyfinSession) []string {
-	sessionID := session.Id
-	if sessionID == "" {
-		sessionID = "unknown"
-	}
+	sessionID := session.SessionID()
 
 	state := session.PlayState
 	method := ""
@@ -242,11 +239,8 @@ func (c *transcodingCollector) Update(ch chan<- prometheus.Metric) error {
 		labels := transcodingLabels(session)
 		ch <- prometheus.MustNewConstMetric(c.sessionInfo, prometheus.GaugeValue, 1, labels...)
 
-		sessionID := labels[0]
-		paused := 0.0
-		if session.PlayState != nil && session.PlayState.IsPaused {
-			paused = 1.0
-		}
+		sessionID := session.SessionID()
+		paused := utils.BoolToFloat(session.PlayState != nil && session.PlayState.IsPaused)
 		ch <- prometheus.MustNewConstMetric(c.sessionPaused, prometheus.GaugeValue, paused, sessionID)
 
 		if session.TranscodingInfo != nil {

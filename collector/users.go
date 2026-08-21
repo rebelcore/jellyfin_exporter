@@ -75,10 +75,13 @@ func NewUsersCollector(logger *slog.Logger) (Collector, error) {
 		"Jellyfin user accounts.",
 		[]string{"user_id", "username", "admin", "last_access"}, nil,
 	)
+	// session_id keeps the series distinct: one account signed in from two
+	// same-named devices (and, behind a reverse proxy, one shared source
+	// address) otherwise yields an identical label set for both sessions.
 	userActive := prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, subsystem, "active"),
 		"Jellyfin current active users.",
-		[]string{"user_id", "username", "client", "client_version", "device", "ip_address"}, nil,
+		[]string{"session_id", "user_id", "username", "client", "client_version", "device", "ip_address"}, nil,
 	)
 	return &userCollector{
 		userAccount: userAccount,
@@ -175,6 +178,7 @@ func (c *userCollector) Update(ch chan<- prometheus.Metric) error {
 			ch <- prometheus.MustNewConstMetric(c.userActive,
 				prometheus.GaugeValue,
 				1,
+				session.SessionID(),
 				session.UserId,
 				session.UserName,
 				session.Client,
