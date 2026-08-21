@@ -183,8 +183,8 @@ label so you can track individual streams.
 
 | Metric                       | Type  | Labels         |
 |------------------------------|-------|----------------|
-| `jellyfin_storage_free_bytes` | Gauge | location, name |
-| `jellyfin_storage_used_bytes` | Gauge | location, name |
+| `jellyfin_storage_free_bytes` | Gauge | location, name, path |
+| `jellyfin_storage_used_bytes` | Gauge | location, name, path |
 
 #### Tasks
 

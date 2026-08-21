@@ -26,10 +26,13 @@ import (
 )
 
 // jellyfinFolderStorage is the free/used byte counts for a single Jellyfin
-// folder or library location.
+// folder or library location. Path identifies the folder on disk and is what
+// keeps the emitted series distinct: a library may map several folders, which
+// would otherwise share one label set.
 type jellyfinFolderStorage struct {
-	FreeSpace int64 `json:"FreeSpace"`
-	UsedSpace int64 `json:"UsedSpace"`
+	Path      string `json:"Path"`
+	FreeSpace int64  `json:"FreeSpace"`
+	UsedSpace int64  `json:"UsedSpace"`
 }
 
 // jellyfinLibraryStorage is a library and the storage of each of its folders.
@@ -68,7 +71,7 @@ func init() {
 func NewStorageCollector(logger *slog.Logger) (Collector, error) {
 	const subsystem = "storage"
 
-	labelNames := []string{"location", "name"}
+	labelNames := []string{"location", "name", "path"}
 
 	return &storageCollector{
 		freeBytes: prometheus.NewDesc(
@@ -130,12 +133,17 @@ func (c *storageCollector) Update(ch chan<- prometheus.Metric) error {
 }
 
 // emitFolder emits the free/used byte metrics for a single folder, labelled by
-// location and name. A nil folder (absent in the response) is skipped.
+// location, name and path. A nil folder (absent in the response) is skipped.
+//
+// The path label is what makes each series unique: a library that maps several
+// folders reports one entry per folder, all sharing the library's name, so
+// without it the second and later folders would collide with the first and be
+// rejected by the registry.
 func (c *storageCollector) emitFolder(ch chan<- prometheus.Metric, location string, folder *jellyfinFolderStorage, libraryName string) {
 	if folder == nil {
 		return
 	}
-	labelValues := []string{location, libraryName}
+	labelValues := []string{location, libraryName, folder.Path}
 	ch <- prometheus.MustNewConstMetric(c.freeBytes, prometheus.GaugeValue, float64(folder.FreeSpace), labelValues...)
 	ch <- prometheus.MustNewConstMetric(c.usedBytes, prometheus.GaugeValue, float64(folder.UsedSpace), labelValues...)
 }

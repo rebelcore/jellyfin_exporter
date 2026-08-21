@@ -92,3 +92,49 @@ func TestStorageCollectorUpdate(t *testing.T) {
 		t.Fatalf("expected 6 metrics, got %d", metrics)
 	}
 }
+
+// TestStorageCollector_MultiFolderLibraryEmitsDistinctSeries guards against the
+// duplicate label set a multi-folder library used to produce, which the registry
+// rejected — silently dropping every folder after the first.
+func TestStorageCollector_MultiFolderLibraryEmitsDistinctSeries(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"Libraries":[
+				{"Id":"lib-1","Name":"Movies","Folders":[
+					{"Path":"/mnt/a","FreeSpace":300,"UsedSpace":10},
+					{"Path":"/mnt/b","FreeSpace":400,"UsedSpace":20}
+				]}
+			]
+		}`))
+	}))
+	defer srv.Close()
+
+	setJellyfinFlags(t, srv.URL, testJellyfinToken)
+	t.Cleanup(func() { setJellyfinFlags(t, testJellyfinURL, testJellyfinToken) })
+
+	c, err := NewStorageCollector(logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(JellyfinCollector{Collectors: map[string]Collector{"storage": c}, logger: logger})
+
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("gather reported an error (duplicate label sets?): %v", err)
+	}
+
+	var free int
+	for _, mf := range families {
+		if mf.GetName() == "jellyfin_storage_free_bytes" {
+			free = len(mf.GetMetric())
+		}
+	}
+	if want, have := 2, free; want != have {
+		t.Fatalf("want %d jellyfin_storage_free_bytes series, have %d", want, have)
+	}
+}
