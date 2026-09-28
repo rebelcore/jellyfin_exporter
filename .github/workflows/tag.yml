@@ -46,7 +46,7 @@ jobs:
           fi
 
       - name: Setup GIT
-        uses: rebelmediausa/gitconfig@e5dd080a5592bd940fd913575482e9137764eaba # v1
+        uses: rebelmediausa/gitconfig@726db48f1d4a860d38ef1b6e8c3e07310159c4e9 # v1
         with:
           git_user_name: RebelBot
           git_user_email: bot@rebelmedia.io

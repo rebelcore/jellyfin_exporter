@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
 
       - name: Get CI Commands
-        uses: rebelmediausa/promci@49becc35ae119591d96e39858701816a01b77c1a # v1.1.0
+        uses: rebelmediausa/promci@a0a95d4841b61b2611656c77e0525fae21883fb5 # v1.3.1
 
       - name: Run Build
         uses: ./.github/promci/actions/build
@@ -80,7 +80,7 @@ jobs:
           persist-credentials: false
 
       - name: Get CI Commands
-        uses: rebelmediausa/promci@49becc35ae119591d96e39858701816a01b77c1a # v1.1.0
+        uses: rebelmediausa/promci@a0a95d4841b61b2611656c77e0525fae21883fb5 # v1.3.1
 
       - name: Publish Release
         uses: ./.github/promci/actions/publish_release
