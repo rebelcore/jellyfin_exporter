@@ -7,7 +7,7 @@
 * [BUG FIX] Report every session when several share the same labels, instead of dropping all but one with a "collected before" error #119
 * [BUG FIX] Report every folder of a library that maps several folders, instead of only the first
 * [BUG FIX] Emit `jellyfin_up` as 0 when the Jellyfin server is unreachable
-* [BUG FIX] Stop counting remuxing sessions in `jellyfin_transcoding_active` and `jellyfin_transcoding_sessions`
+* [BUG FIX] Stop reporting remuxing sessions in the `jellyfin_transcoding_*` metrics
 * [BUG FIX] Trim whitespace from the API token and trailing slashes from `--jellyfin.address`
 * [BUG FIX] Reject an invalid `--web.telemetry-path` at startup instead of panicking
 * [BUG FIX] Return 400 for an `exclude[]` query that excludes every collector

@@ -137,13 +137,11 @@ codec information, bitrate, framerate, resolution, hardware acceleration
 status, and transcoding reasons. Sessions are identified by a `session_id`
 label so you can track individual streams.
 
-Only sessions that are actually re-encoding are counted. Jellyfin also reports
+Only sessions that are actually re-encoding are reported. Jellyfin also reports
 transcoding details for a container remux, where the video and audio streams
 are copied untouched — its own dashboard labels those "Remuxing" — and those
-are excluded from `jellyfin_transcoding_active` and
-`jellyfin_transcoding_sessions`. Use the per-session
-`jellyfin_transcoding_session_video_direct` and
-`jellyfin_transcoding_session_audio_direct` gauges to inspect stream handling.
+sessions are left out of every `jellyfin_transcoding_*` metric, including the
+`jellyfin_transcoding_active` and `jellyfin_transcoding_sessions` counts.
 
 ### Metrics Reference
 
