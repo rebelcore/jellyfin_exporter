@@ -15,24 +15,28 @@
 // the registry that wires them together.
 //
 // Each metric source lives in its own file and registers itself from an init()
-// function via registerCollector, which also defines a --collector.<name> flag
-// to enable or disable it. At scrape time NewJellyfinCollector builds the set of
-// enabled collectors (optionally narrowed by an explicit filter list), and
-// JellyfinCollector.Collect runs them concurrently, recording a per-collector
-// duration and success metric. Individual collectors implement the Collector
-// interface and may return ErrNoData to signal "nothing to report", which is
-// logged at debug level rather than as a failure — though, as for any returned
-// error, the collector's success metric is still 0.
+// function via registerCollector, which also gives it a --[no-]collector.<name>
+// flag to enable or disable it (see Flags). At scrape time NewJellyfinCollector
+// builds the set of enabled collectors (optionally narrowed by an explicit
+// filter list), and JellyfinCollector.Collect runs them concurrently, recording
+// a per-collector duration and success metric. Individual collectors implement
+// the Collector interface and may return ErrNoData to signal "nothing to
+// report", which is logged at debug level rather than as a failure — though, as
+// for any returned error, the collector's success metric is still 0.
 package collector
 
 import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"reflect"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/alecthomas/kingpin/v2"
+	"github.com/alecthomas/kong"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -71,36 +75,36 @@ const (
 //   - initiatedCollectors: collector instances, built lazily and reused across
 //     scrapes; guarded by initiatedCollectorsMtx.
 //   - collectorState:      pointer to each collector's enabled flag value.
+//   - collectorDefaults:   whether each collector is enabled by default.
 //   - forcedCollectors:    collectors explicitly toggled on the command line,
 //     which DisableDefaultCollectors must not override.
+//   - flagGroups:          collector-specific options added by registerFlags.
 var (
 	factories              = make(map[string]func(logger *slog.Logger) (Collector, error))
 	initiatedCollectorsMtx = sync.Mutex{}
 	initiatedCollectors    = make(map[string]Collector)
 	collectorState         = make(map[string]*bool)
+	collectorDefaults      = make(map[string]bool)
 	forcedCollectors       = map[string]bool{}
+	flagGroups             []any
 )
 
-// registerCollector wires a collector into the registry: it defines the
-// --collector.<name> flag (defaulting to enabled or disabled per
-// isDefaultEnabled) and records the factory used to build the collector on first
-// use. Collectors call this from their init() functions.
+// registerCollector wires a collector into the registry: it records whether the
+// collector is enabled by default, which seeds its --collector.<name> flag (see
+// Flags), and the factory used to build the collector on first use. Collectors
+// call this from their init() functions.
 func registerCollector(collector string, isDefaultEnabled bool, factory func(logger *slog.Logger) (Collector, error)) {
-	var helpDefaultState string
-	if isDefaultEnabled {
-		helpDefaultState = "enabled"
-	} else {
-		helpDefaultState = "disabled"
-	}
-
-	flagName := fmt.Sprintf("collector.%s", collector)
-	flagHelp := fmt.Sprintf("Enable the %s collector (default: %s).", collector, helpDefaultState)
-	defaultValue := fmt.Sprintf("%v", isDefaultEnabled)
-
-	flag := kingpin.Flag(flagName, flagHelp).Default(defaultValue).Action(collectorFlagAction(collector)).Bool()
-	collectorState[collector] = flag
-
+	enabled := isDefaultEnabled
+	collectorState[collector] = &enabled
+	collectorDefaults[collector] = isDefaultEnabled
 	factories[collector] = factory
+}
+
+// registerFlags adds a collector's own options to the command line. group must
+// be a pointer to a struct whose fields carry kong flag tags. Collectors call
+// this from their init() functions, alongside registerCollector.
+func registerFlags(group any) {
+	flagGroups = append(flagGroups, group)
 }
 
 // JellyfinCollector is the top-level prometheus.Collector. It fans a single
@@ -150,12 +154,69 @@ func SnapshotCollectorStates() func() {
 	}
 }
 
-// collectorFlagAction returns a kingpin action that marks a collector as
-// explicitly requested, so DisableDefaultCollectors leaves it enabled.
-func collectorFlagAction(collector string) func(ctx *kingpin.ParseContext) error {
-	return func(ctx *kingpin.ParseContext) error {
-		forcedCollectors[collector] = true
-		return nil
+// toggles is the flag group holding the --[no-]collector.<name> flags, built
+// on the first call to Flags.
+var (
+	togglesOnce sync.Once
+	toggles     any
+)
+
+// Flags returns the collector flag groups for the exporter's command line: the
+// --[no-]collector.<name> toggles plus any collector-specific options. Embed
+// each one in the root of the CLI with kong.Embed. Parsing writes the toggles
+// straight into the collector state; call MarkForcedCollectors afterwards so
+// DisableDefaultCollectors knows which ones were set explicitly.
+func Flags() []any {
+	togglesOnce.Do(func() { toggles = newToggles() })
+	return append([]any{toggles}, flagGroups...)
+}
+
+// newToggles builds a struct with one --[no-]collector.<name> bool field per
+// registered collector. Kong reads flags from struct tags, but which collectors
+// exist is only settled once their init() functions (and the build tags that
+// select them) have run, so the struct type is assembled at run time with
+// reflect.StructOf. Each collector's state is then pointed at its field, so
+// parsing updates collectorState directly.
+func newToggles() any {
+	names := slices.Sorted(maps.Keys(collectorState))
+	fields := make([]reflect.StructField, len(names))
+	for i, name := range names {
+		helpDefaultState := "disabled"
+		if collectorDefaults[name] {
+			helpDefaultState = "enabled"
+		}
+		fields[i] = reflect.StructField{
+			Name: fmt.Sprintf("Collector%d", i),
+			Type: reflect.TypeFor[bool](),
+			Tag: reflect.StructTag(fmt.Sprintf(
+				`name:"collector.%s" negatable:"" default:"%t" help:"Enable the %s collector (default: %s)."`,
+				name, collectorDefaults[name], name, helpDefaultState,
+			)),
+		}
+	}
+
+	group := reflect.New(reflect.StructOf(fields))
+	for i, name := range names {
+		field := group.Elem().Field(i).Addr().Interface().(*bool)
+		*field = *collectorState[name]
+		collectorState[name] = field
+	}
+	return group.Interface()
+}
+
+// MarkForcedCollectors records each collector whose --[no-]collector.<name>
+// flag was given on the command line, so DisableDefaultCollectors leaves it as
+// set. Call it once after parsing.
+func MarkForcedCollectors(ctx *kong.Context) {
+	for _, p := range ctx.Path {
+		if p.Flag == nil || p.Resolved {
+			continue
+		}
+		if name, ok := strings.CutPrefix(p.Flag.Name, "collector."); ok {
+			if _, registered := collectorState[name]; registered {
+				forcedCollectors[name] = true
+			}
+		}
 	}
 }
 

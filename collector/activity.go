@@ -22,18 +22,18 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/alecthomas/kingpin/v2"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/rebelcore/jellyfin_exporter/collector/utils"
 	"github.com/rebelcore/jellyfin_exporter/config"
 )
 
-// jellyfinReportDays is the look-back window (in days) for the Playback
-// Reporting query, defaulting to ~100 years so the full history is included.
-var (
-	jellyfinReportDays = kingpin.Flag("collector.activity.days", "Jellyfin Playback Reporting search in days (Default to 100 Years).").Default("36525").Int()
-)
+// activityFlags holds the activity collector's options. Days is the look-back
+// window for the Playback Reporting query, defaulting to ~100 years so the full
+// history is included.
+var activityFlags struct {
+	Days int `name:"collector.activity.days" default:"36525" help:"Jellyfin Playback Reporting search in days (Default to 100 Years)."`
+}
 
 // JellyfinUserActivity is one row from the Playback Reporting plugin's
 // user_activity report. Field tags are snake_case to match that plugin's API.
@@ -60,6 +60,7 @@ type activityCollector struct {
 
 func init() {
 	registerCollector("activity", defaultDisabled, NewActivityCollector)
+	registerFlags(&activityFlags)
 }
 
 // NewActivityCollector builds the activity collector and its descriptor.
@@ -102,7 +103,7 @@ func (c *activityCollector) Update(ch chan<- prometheus.Metric) error {
 		c.logger.Error("Failed to get Jellyfin config", "error", err)
 		return err
 	}
-	activityList, err := getUserActivity(jellyfinURL, jellyfinToken, *jellyfinReportDays)
+	activityList, err := getUserActivity(jellyfinURL, jellyfinToken, activityFlags.Days)
 	if err != nil {
 		c.logger.Error("Failed to get user activity", "error", err)
 		return err
