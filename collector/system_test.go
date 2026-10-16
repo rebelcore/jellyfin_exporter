@@ -20,9 +20,11 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 
 	"github.com/rebelcore/jellyfin_exporter/collector/utils"
 )
@@ -157,5 +159,51 @@ func TestSystemCollectorUpdate(t *testing.T) {
 	}
 	if metrics != 3 {
 		t.Fatalf("expected 3 metrics, got %d", metrics)
+	}
+}
+
+// TestSystemCollectorUpdate_EmitsUpZeroWhenPingFails guards the liveness
+// contract: an unreachable server must report jellyfin_up 0, not omit the
+// series, or alerts written against `jellyfin_up == 0` never fire.
+func TestSystemCollectorUpdate_EmitsUpZeroWhenPingFails(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	setJellyfinFlags(t, srv.URL, testJellyfinToken)
+	t.Cleanup(func() { setJellyfinFlags(t, testJellyfinURL, testJellyfinToken) })
+
+	c, err := NewSystemCollector(logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ch := make(chan prometheus.Metric, 10)
+	updateErr := c.Update(ch)
+	close(ch)
+
+	if updateErr == nil {
+		t.Fatalf("expected Update to report the failure")
+	}
+
+	var found bool
+	for m := range ch {
+		if !strings.Contains(m.Desc().String(), "jellyfin_up") {
+			continue
+		}
+		var dm dto.Metric
+		if err := m.Write(&dm); err != nil {
+			t.Fatalf("write metric: %v", err)
+		}
+		if want, have := 0.0, dm.GetGauge().GetValue(); want != have {
+			t.Fatalf("want jellyfin_up %v, have %v", want, have)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatalf("expected jellyfin_up to be emitted when the server is unreachable")
 	}
 }

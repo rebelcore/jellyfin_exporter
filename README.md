@@ -137,6 +137,14 @@ codec information, bitrate, framerate, resolution, hardware acceleration
 status, and transcoding reasons. Sessions are identified by a `session_id`
 label so you can track individual streams.
 
+Only sessions that are actually re-encoding are counted. Jellyfin also reports
+transcoding details for a container remux, where the video and audio streams
+are copied untouched — its own dashboard labels those "Remuxing" — and those
+are excluded from `jellyfin_transcoding_active` and
+`jellyfin_transcoding_sessions`. Use the per-session
+`jellyfin_transcoding_session_video_direct` and
+`jellyfin_transcoding_session_audio_direct` gauges to inspect stream handling.
+
 ### Metrics Reference
 
 <details>
@@ -160,18 +168,18 @@ label so you can track individual streams.
 
 | Metric                            | Type  | Labels                                                                                                  |
 |-----------------------------------|-------|---------------------------------------------------------------------------------------------------------|
-| `jellyfin_now_playing_state`      | Gauge | user_id, username, device, type, title, series_title, series_season, series_episode, method             |
-| `jellyfin_now_playing_progress`   | Gauge | user_id, username, device, type, title, series_title, series_season, series_episode, method             |
-| `jellyfin_now_playing_position`   | Gauge | user_id, username, device, type, title, series_title, series_season, series_episode, method             |
-| `jellyfin_now_playing_duration`   | Gauge | user_id, username, device, type, title, series_title, series_season, series_episode, method             |
-| `jellyfin_now_playing_remaining`  | Gauge | user_id, username, device, type, title, series_title, series_season, series_episode, method             |
+| `jellyfin_now_playing_state`      | Gauge | session_id, user_id, username, device, type, title, series_title, series_season, series_episode, method |
+| `jellyfin_now_playing_progress`   | Gauge | session_id, user_id, username, device, type, title, series_title, series_season, series_episode, method |
+| `jellyfin_now_playing_position`   | Gauge | session_id, user_id, username, device, type, title, series_title, series_season, series_episode, method |
+| `jellyfin_now_playing_duration`   | Gauge | session_id, user_id, username, device, type, title, series_title, series_season, series_episode, method |
+| `jellyfin_now_playing_remaining`  | Gauge | session_id, user_id, username, device, type, title, series_title, series_season, series_episode, method |
 
 #### Users
 
 | Metric                  | Type  | Labels                                                       |
 |------------------------|-------|--------------------------------------------------------------|
 | `jellyfin_user_account` | Gauge | user_id, username, admin, last_access                        |
-| `jellyfin_user_active`  | Gauge | user_id, username, client, client_version, device, ip_address |
+| `jellyfin_user_active`  | Gauge | session_id, user_id, username, client, client_version, device, ip_address |
 
 #### Activity
 
@@ -183,8 +191,8 @@ label so you can track individual streams.
 
 | Metric                       | Type  | Labels         |
 |------------------------------|-------|----------------|
-| `jellyfin_storage_free_bytes` | Gauge | location, name |
-| `jellyfin_storage_used_bytes` | Gauge | location, name |
+| `jellyfin_storage_free_bytes` | Gauge | location, name, path |
+| `jellyfin_storage_used_bytes` | Gauge | location, name, path |
 
 #### Tasks
 

@@ -147,3 +147,53 @@ func TestUsersCollectorUpdate(t *testing.T) {
 		t.Fatalf("expected 4 metrics, got %d", metrics)
 	}
 }
+
+// TestUsersCollector_ConcurrentSessionsEmitDistinctSeries guards against the
+// duplicate label set two sessions of one user used to produce; behind a reverse
+// proxy even the ip_address label is shared, so session_id is the discriminator.
+func TestUsersCollector_ConcurrentSessionsEmitDistinctSeries(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/Users" {
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		_, _ = w.Write([]byte(`[
+			{"Id":"session-A","UserId":"u1","UserName":"Alice","DeviceName":"Chrome","Client":"Jellyfin Web","ApplicationVersion":"10.10.3","RemoteEndPoint":"192.0.2.10",
+			 "PlayState":{"PositionTicks":10000000,"IsPaused":false,"PlayMethod":"DirectPlay"},
+			 "NowPlayingItem":{"Name":"Title","Type":"Movie","RunTimeTicks":20000000}},
+			{"Id":"session-B","UserId":"u1","UserName":"Alice","DeviceName":"Chrome","Client":"Jellyfin Web","ApplicationVersion":"10.10.3","RemoteEndPoint":"192.0.2.10",
+			 "PlayState":{"PositionTicks":10000000,"IsPaused":false,"PlayMethod":"DirectPlay"},
+			 "NowPlayingItem":{"Name":"Title","Type":"Movie","RunTimeTicks":20000000}}
+		]`))
+	}))
+	defer srv.Close()
+
+	setJellyfinFlags(t, srv.URL, testJellyfinToken)
+	t.Cleanup(func() { setJellyfinFlags(t, testJellyfinURL, testJellyfinToken) })
+
+	c, err := NewUsersCollector(logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(JellyfinCollector{Collectors: map[string]Collector{"users": c}, logger: logger})
+
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("gather reported an error (duplicate label sets?): %v", err)
+	}
+
+	var active int
+	for _, mf := range families {
+		if mf.GetName() == "jellyfin_user_active" {
+			active = len(mf.GetMetric())
+		}
+	}
+	if want, have := 2, active; want != have {
+		t.Fatalf("want %d jellyfin_user_active series, have %d", want, have)
+	}
+}

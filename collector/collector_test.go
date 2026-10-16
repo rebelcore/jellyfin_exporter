@@ -16,15 +16,18 @@ package collector
 import (
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 
-	"github.com/alecthomas/kingpin/v2"
+	"github.com/alecthomas/kong"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
+
+	"github.com/rebelcore/jellyfin_exporter/config"
 )
 
 const testJellyfinToken = "test-token"
@@ -147,12 +150,8 @@ func TestMain(m *testing.M) {
 	}))
 
 	testJellyfinURL = srv.URL
-	_, err := kingpin.CommandLine.Parse([]string{
-		"--jellyfin.address", testJellyfinURL,
-		"--jellyfin.token", testJellyfinToken,
-	})
-	if err != nil {
-		logger.Error("failed to parse kingpin flags", "err", err)
+	if _, err := parseFlags("--jellyfin.address", testJellyfinURL, "--jellyfin.token", testJellyfinToken); err != nil {
+		logger.Error("failed to parse flags", "err", err)
 		srv.Close()
 		os.Exit(2)
 	}
@@ -162,14 +161,24 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// parseFlags parses args against the connection and collector flags, as the
+// exporter's command line does, so every flag's default is applied too.
+func parseFlags(args ...string) (*kong.Context, error) {
+	options := []kong.Option{kong.Embed(config.Flags())}
+	for _, group := range Flags() {
+		options = append(options, kong.Embed(group))
+	}
+	parser, err := kong.New(&struct{}{}, options...)
+	if err != nil {
+		return nil, err
+	}
+	return parser.Parse(args)
+}
+
 func setJellyfinFlags(t *testing.T, url, token string) {
 	t.Helper()
 
-	_, err := kingpin.CommandLine.Parse([]string{
-		"--jellyfin.address", url,
-		"--jellyfin.token", token,
-	})
-	if err != nil {
+	if _, err := parseFlags("--jellyfin.address", url, "--jellyfin.token", token); err != nil {
 		t.Fatalf("failed to parse flags: %v", err)
 	}
 }
@@ -218,19 +227,47 @@ func TestDisableDefaultCollectors_RespectsForcedCollectors(t *testing.T) {
 	}
 }
 
-func TestCollectorFlagAction_TracksForcedCollectors(t *testing.T) {
-	prev := make(map[string]bool, len(forcedCollectors))
-	for k, v := range forcedCollectors {
-		prev[k] = v
-	}
-	defer func() { forcedCollectors = prev }()
+func TestFlags_TogglesUpdateCollectorState(t *testing.T) {
+	t.Cleanup(SnapshotCollectorStates())
+	t.Cleanup(func() { setJellyfinFlags(t, testJellyfinURL, testJellyfinToken) })
 
-	forcedCollectors = map[string]bool{}
-	if err := collectorFlagAction("media")(nil); err != nil {
+	if _, err := parseFlags("--jellyfin.token", "token", "--collector.transcoding", "--no-collector.users"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !forcedCollectors["media"] {
-		t.Fatalf("expected media to be forced")
+
+	// transcoding is off by default and users on, so both flags flip them.
+	for name, enabled := range collectorState {
+		want := collectorDefaults[name]
+		switch name {
+		case "transcoding":
+			want = true
+		case "users":
+			want = false
+		}
+		if *enabled != want {
+			t.Errorf("collector %q: want enabled=%t, have %t", name, want, *enabled)
+		}
+	}
+	if want, have := 36525, activityFlags.Days; want != have {
+		t.Errorf("want --collector.activity.days default %d, have %d", want, have)
+	}
+}
+
+func TestMarkForcedCollectors_TracksFlagsGivenOnTheCommandLine(t *testing.T) {
+	t.Cleanup(SnapshotCollectorStates())
+	t.Cleanup(func() { setJellyfinFlags(t, testJellyfinURL, testJellyfinToken) })
+
+	clear(forcedCollectors)
+	ctx, err := parseFlags("--jellyfin.token", "token", "--collector.media", "--no-collector.users", "--collector.activity.days", "7")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	MarkForcedCollectors(ctx)
+
+	// Both toggles count, whichever way they point; collector options such as
+	// --collector.activity.days do not.
+	if want := map[string]bool{"media": true, "users": true}; !maps.Equal(forcedCollectors, want) {
+		t.Fatalf("want forced collectors %v, have %v", want, forcedCollectors)
 	}
 }
 

@@ -14,6 +14,7 @@
 package utils
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -50,6 +51,20 @@ func userAgent() string {
 	return "jellyfin_exporter"
 }
 
+// GetJSON performs an authenticated GET against the Jellyfin API and decodes the
+// JSON response into v. It is the single place the fetch-then-decode sequence
+// lives, so every collector reports a malformed response identically.
+func GetJSON(url, token string, v any) error {
+	rawBody, err := GetHTTP(url, token)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(rawBody, v); err != nil {
+		return fmt.Errorf("unexpected response from Jellyfin API: %w", err)
+	}
+	return nil
+}
+
 // GetHTTP performs an authenticated GET against the Jellyfin API and returns the
 // raw response body. It sets the MediaBrowser token and User-Agent, caps the
 // amount read (see maxResponseBytes), and converts any non-2xx status into an
@@ -84,9 +99,19 @@ func GetHTTP(url, token string) ([]byte, error) {
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		msg := strings.TrimSpace(string(body))
-		if len(msg) > maxErrorSnippetBytes {
-			msg = msg[:maxErrorSnippetBytes] + "..."
+		// Cut the raw bytes down before converting, so a large body is not
+		// copied whole just to quote a snippet of it. Trimming to a rune
+		// boundary keeps the message valid UTF-8 when the cut lands in the
+		// middle of a multi-byte character.
+		snippet := body
+		truncated := false
+		if len(snippet) > maxErrorSnippetBytes {
+			snippet = snippet[:maxErrorSnippetBytes]
+			truncated = true
+		}
+		msg := strings.TrimSpace(strings.ToValidUTF8(string(snippet), ""))
+		if truncated {
+			msg += "..."
 		}
 		return nil, fmt.Errorf("unexpected HTTP status %s: %s", resp.Status, msg)
 	}

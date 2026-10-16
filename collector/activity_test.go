@@ -43,7 +43,7 @@ func TestGetUserActivity(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	list, err := getUserActivity(srv.URL, token, "7")
+	list, err := getUserActivity(srv.URL, token, 7)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestGetUserActivity_InvalidJSON(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := getUserActivity(srv.URL, "token", "1")
+	_, err := getUserActivity(srv.URL, "token", 1)
 	if err == nil {
 		t.Fatalf("expected error")
 	}

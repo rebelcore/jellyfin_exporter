@@ -28,24 +28,22 @@ import (
 	"os/user"
 	"runtime"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/prometheus/common/promslog"
-	"github.com/prometheus/common/promslog/flag"
 
-	"github.com/alecthomas/kingpin/v2"
+	"github.com/alecthomas/kong"
 	"github.com/prometheus/client_golang/prometheus"
 	promcollectors "github.com/prometheus/client_golang/prometheus/collectors"
 	versioncollector "github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/version"
 	"github.com/prometheus/exporter-toolkit/web"
-	"github.com/prometheus/exporter-toolkit/web/kingpinflag"
 
 	"github.com/rebelcore/jellyfin_exporter/collector"
+	"github.com/rebelcore/jellyfin_exporter/config"
 )
 
 // handler builds and serves the Prometheus metrics endpoint. It keeps an
@@ -120,18 +118,36 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// collect[] names the collectors to run directly; exclude[] is the inverse,
 	// so convert it into a keep-list of every enabled collector except those
 	// named.
-	filters := &collects
+	filters := collects
 	if len(excludes) > 0 {
-		f := []string{}
-		for _, c := range h.enabledCollectors {
-			if !slices.Contains(excludes, c) {
-				f = append(f, c)
+		// A name that matches no enabled collector cannot narrow anything, so
+		// warn rather than silently serving the full set for a typo. It stays
+		// non-fatal because excluding an already-disabled collector is a
+		// legitimate no-op.
+		for _, e := range excludes {
+			if !slices.Contains(h.enabledCollectors, e) {
+				h.logger.Warn("Ignoring unknown or disabled collector in exclude[]", "collector", e)
 			}
 		}
-		filters = &f
+
+		filters = nil
+		for _, c := range h.enabledCollectors {
+			if !slices.Contains(excludes, c) {
+				filters = append(filters, c)
+			}
+		}
+
+		// Excluding every enabled collector leaves nothing to collect. That must
+		// not fall through to innerHandler, where an empty filter list means
+		// "every enabled collector" — the exact inverse of what was asked.
+		if len(filters) == 0 {
+			h.logger.Debug("rejecting exclude query that removes every collector")
+			http.Error(w, "All enabled collectors have been excluded.", http.StatusBadRequest)
+			return
+		}
 	}
 
-	filteredHandler, err := h.innerHandler(*filters...)
+	filteredHandler, err := h.innerHandler(filters...)
 	if err != nil {
 		h.logger.Warn("Couldn't create filtered metrics handler:", "err", err)
 		http.Error(w, fmt.Sprintf("Couldn't create filtered metrics handler: %s", err), http.StatusBadRequest)
@@ -160,7 +176,7 @@ func (h *handler) innerHandler(filters ...string) (http.Handler, error) {
 			for n := range nc.Collectors {
 				h.enabledCollectors = append(h.enabledCollectors, n)
 			}
-			sort.Strings(h.enabledCollectors)
+			slices.Sort(h.enabledCollectors)
 			for _, c := range h.enabledCollectors {
 				h.logger.Info(c)
 			}
@@ -204,18 +220,51 @@ func (h *handler) innerHandler(filters ...string) (http.Handler, error) {
 	return handler, nil
 }
 
+// pprofPrefix is the route net/http/pprof is mounted under when profiling is
+// enabled; the metrics path must not collide with it.
+const pprofPrefix = "/debug/pprof/"
+
+// validateMetricsPath rejects --web.telemetry-path values that http.ServeMux
+// would panic on: it must be a plain absolute path, with no whitespace and no
+// wildcard syntax, and it must not collide with the pprof routes.
+func validateMetricsPath(metricsPath string, enablePprof bool) error {
+	if metricsPath == "" {
+		return errors.New("web.telemetry-path must not be empty")
+	}
+	if !strings.HasPrefix(metricsPath, "/") {
+		return fmt.Errorf("web.telemetry-path %q must start with %q", metricsPath, "/")
+	}
+	if strings.ContainsAny(metricsPath, " \t\r\n") {
+		return fmt.Errorf("web.telemetry-path %q must not contain whitespace", metricsPath)
+	}
+	if strings.ContainsAny(metricsPath, "{}") {
+		return fmt.Errorf("web.telemetry-path %q must not contain wildcard syntax", metricsPath)
+	}
+	if enablePprof && strings.HasPrefix(metricsPath, pprofPrefix) {
+		return fmt.Errorf("web.telemetry-path %q conflicts with the pprof endpoints at %q", metricsPath, pprofPrefix)
+	}
+	return nil
+}
+
 // buildMux assembles the HTTP routes: the metrics handler at metricsPath, the
 // pprof endpoints when enablePprof is set, and a landing page at "/" (unless
 // metrics are already served there). The landing page advertises the pprof
 // links only when profiling is enabled, so they never point at a 404.
 func buildMux(metricsPath string, metricsHandler http.Handler, enablePprof bool) (*http.ServeMux, error) {
+	// http.ServeMux panics on a malformed pattern, so validate the operator's
+	// value first and return an error instead of crashing at startup with a
+	// stack trace.
+	if err := validateMetricsPath(metricsPath, enablePprof); err != nil {
+		return nil, err
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle(metricsPath, metricsHandler)
 
 	// Profiling endpoints, registered only when enabled — the same routes
 	// net/http/pprof installs on the default mux.
 	if enablePprof {
-		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc(pprofPrefix, pprof.Index)
 		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
 		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
 		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
@@ -292,52 +341,122 @@ func run(
 	return listenAndServe(server, toolkitFlags, logger)
 }
 
+// flags is the exporter's command line, parsed by kong. The Jellyfin connection
+// and collector flags are defined by the packages that use them; newParser
+// embeds them alongside these.
+type flags struct {
+	MetricsPath              string           `name:"web.telemetry-path" default:"/metrics" help:"Path under which to expose metrics."`
+	DisableExporterMetrics   bool             `name:"web.disable-exporter-metrics" negatable:"" help:"Exclude metrics about the exporter itself (promhttp_*, process_*, go_*)."`
+	MaxRequests              int              `name:"web.max-requests" default:"40" help:"Maximum number of parallel scrape requests. Use 0 to disable."`
+	DisableDefaultCollectors bool             `name:"collector.disable-defaults" negatable:"" help:"Set all collectors to disabled by default."`
+	MaxProcs                 int              `name:"runtime.gomaxprocs" env:"GOMAXPROCS" default:"1" help:"The target number of CPUs Go will run on (GOMAXPROCS)"`
+	EnablePprof              bool             `name:"web.enable-pprof" negatable:"" help:"Enable pprof profiling endpoints under /debug/pprof/."`
+	WebListenAddresses       []string         `name:"web.listen-address" default:":9594" sep:"none" placeholder:":9594" help:"Addresses on which to expose metrics and web interface. Repeatable for multiple addresses. Examples: :9100 or [::1]:9100 for http, vsock://:9100 for vsock"`
+	WebConfigFile            string           `name:"web.config.file" help:"Path to configuration file that can enable TLS or authentication. See: https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-configuration.md"`
+	LogLevel                 string           `name:"log.level" default:"info" enum:"debug,info,warn,error" help:"Only log messages with the given severity or above. One of: [debug, info, warn, error]"`
+	LogFormat                string           `name:"log.format" default:"logfmt" enum:"logfmt,json" help:"Output format of log messages. One of: [logfmt, json]"`
+	Version                  kong.VersionFlag `help:"Show application version."`
+
+	// Systemd is embedded on Linux only (see newParser), the one platform
+	// where exporter-toolkit supports socket activation.
+	Systemd systemdFlags `kong:"-"`
+}
+
+// systemdFlags holds the Linux-only --web.systemd-socket flag.
+type systemdFlags struct {
+	WebSystemdSocket bool `name:"web.systemd-socket" negatable:"" help:"Use systemd socket activation listeners instead of port listeners (Linux only)."`
+}
+
+// newParser builds the kong parser that fills f from the command line. The
+// Jellyfin connection and collector flags are embedded alongside f's own, as is
+// --web.systemd-socket on Linux.
+func newParser(f *flags, options ...kong.Option) *kong.Kong {
+	options = append(options,
+		kong.Vars{"version": versionString("jellyfin_exporter")},
+		kong.Embed(config.Flags()),
+	)
+	for _, group := range collector.Flags() {
+		options = append(options, kong.Embed(group))
+	}
+	if runtime.GOOS == "linux" {
+		options = append(options, kong.Embed(&f.Systemd))
+	}
+	return kong.Must(f, options...)
+}
+
+// parseFlags parses args with parser, then records which collectors were
+// toggled explicitly, for --collector.disable-defaults.
+//
+// An environment variable that is set but empty counts as unset, so its flag
+// keeps the default. kong would otherwise parse the empty value, leaving an
+// empty --jellyfin.address, satisfying the required --jellyfin.token with an
+// empty token, or failing on an empty GOMAXPROCS.
+func parseFlags(parser *kong.Kong, args []string) error {
+	for _, group := range parser.Model.AllFlags(false) {
+		for _, flag := range group {
+			for _, name := range flag.Envs {
+				if value, ok := os.LookupEnv(name); ok && value == "" {
+					if err := os.Unsetenv(name); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+
+	ctx, err := parser.Parse(args)
+	if err != nil {
+		return err
+	}
+	collector.MarkForcedCollectors(ctx)
+	return nil
+}
+
+// logConfig turns --log.level and --log.format into the promslog
+// configuration.
+func (f *flags) logConfig() (*promslog.Config, error) {
+	cfg := &promslog.Config{Level: promslog.NewLevel(), Format: promslog.NewFormat()}
+	if err := cfg.Level.Set(f.LogLevel); err != nil {
+		return nil, err
+	}
+	if err := cfg.Format.Set(f.LogFormat); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+// webFlags hands the listener flags to exporter-toolkit.
+func (f *flags) webFlags() *web.FlagConfig {
+	return &web.FlagConfig{
+		WebListenAddresses: &f.WebListenAddresses,
+		WebSystemdSocket:   &f.Systemd.WebSystemdSocket,
+		WebConfigFile:      &f.WebConfigFile,
+	}
+}
+
 // main parses flag and environment configuration, then hands off to run,
 // exiting non-zero on error.
 func main() {
-	var (
-		metricsPath = kingpin.Flag(
-			"web.telemetry-path",
-			"Path under which to expose metrics.",
-		).Default("/metrics").String()
-		disableExporterMetrics = kingpin.Flag(
-			"web.disable-exporter-metrics",
-			"Exclude metrics about the exporter itself (promhttp_*, process_*, go_*).",
-		).Bool()
-		maxRequests = kingpin.Flag(
-			"web.max-requests",
-			"Maximum number of parallel scrape requests. Use 0 to disable.",
-		).Default("40").Int()
-		disableDefaultCollectors = kingpin.Flag(
-			"collector.disable-defaults",
-			"Set all collectors to disabled by default.",
-		).Default("false").Bool()
-		maxProcs = kingpin.Flag(
-			"runtime.gomaxprocs", "The target number of CPUs Go will run on (GOMAXPROCS)",
-		).Envar("GOMAXPROCS").Default("1").Int()
-		enablePprof = kingpin.Flag(
-			"web.enable-pprof",
-			"Enable pprof profiling endpoints under /debug/pprof/.",
-		).Default("false").Bool()
-		toolkitFlags = kingpinflag.AddFlags(kingpin.CommandLine, ":9594")
-	)
-
-	promslogConfig := &promslog.Config{}
-	flag.AddFlags(kingpin.CommandLine, promslogConfig)
-	kingpin.Version(versionString("jellyfin_exporter"))
-	kingpin.CommandLine.UsageWriter(os.Stdout)
-	kingpin.HelpFlag.Short('h')
-	kingpin.Parse()
-	logger := promslog.New(promslogConfig)
+	var f flags
+	parser := newParser(&f)
+	if err := parseFlags(parser, os.Args[1:]); err != nil {
+		// Exit 1 on a usage error, like any other startup failure, rather than
+		// with kong's status 80.
+		parser.Errorf("%s", err)
+		os.Exit(1)
+	}
+	logConfig, err := f.logConfig()
+	parser.FatalIfErrorf(err)
+	logger := promslog.New(logConfig)
 
 	if err := run(
-		*metricsPath,
-		*disableExporterMetrics,
-		*maxRequests,
-		*disableDefaultCollectors,
-		*maxProcs,
-		*enablePprof,
-		toolkitFlags,
+		f.MetricsPath,
+		f.DisableExporterMetrics,
+		f.MaxRequests,
+		f.DisableDefaultCollectors,
+		f.MaxProcs,
+		f.EnablePprof,
+		f.webFlags(),
 		logger,
 	); err != nil {
 		logger.Error(err.Error())

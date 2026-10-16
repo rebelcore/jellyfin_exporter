@@ -16,7 +16,6 @@
 package collector
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -76,10 +75,13 @@ func NewUsersCollector(logger *slog.Logger) (Collector, error) {
 		"Jellyfin user accounts.",
 		[]string{"user_id", "username", "admin", "last_access"}, nil,
 	)
+	// session_id keeps the series distinct: one account signed in from two
+	// same-named devices (and, behind a reverse proxy, one shared source
+	// address) otherwise yields an identical label set for both sessions.
 	userActive := prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, subsystem, "active"),
 		"Jellyfin current active users.",
-		[]string{"user_id", "username", "client", "client_version", "device", "ip_address"}, nil,
+		[]string{"session_id", "user_id", "username", "client", "client_version", "device", "ip_address"}, nil,
 	)
 	return &userCollector{
 		userAccount: userAccount,
@@ -92,24 +94,22 @@ func NewUsersCollector(logger *slog.Logger) (Collector, error) {
 // parsing LastActivityDate into a Unix timestamp where present.
 func getUserAccount(jellyfinURL, jellyfinToken string) ([]Account, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/Users", jellyfinURL)
-	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	if err != nil {
-		return nil, err
-	}
-
 	var users []JellyfinUser
-	if err := json.Unmarshal(rawBody, &users); err != nil {
-		return nil, fmt.Errorf("unexpected response from Jellyfin API: %w", err)
+	if err := utils.GetJSON(jellyfinAPIURL, jellyfinToken, &users); err != nil {
+		return nil, err
 	}
 
 	accounts := make([]Account, 0, len(users))
 	for _, u := range users {
 		// Convert the last-activity timestamp to a Unix epoch string, leaving it
 		// empty when the user has never been active or the date can't be parsed.
+		// Jellyfin omits the field for a user who never signed in; the zero-date
+		// check is belt and braces so a sentinel date could never be published
+		// as the nonsensical epoch -62135596800.
 		userLastActive := ""
 		if u.LastActivityDate != "" {
 			t, err := time.Parse(time.RFC3339, u.LastActivityDate)
-			if err == nil {
+			if err == nil && !t.IsZero() {
 				userLastActive = strconv.FormatInt(t.Unix(), 10)
 			}
 		}
@@ -148,16 +148,14 @@ func (c *userCollector) Update(ch chan<- prometheus.Metric) error {
 	// Fetch the account roster and the active sessions independently: a failure
 	// in one still reports the other, and both errors are joined at the end so
 	// the scrape is still marked unsuccessful.
-	userAccounts, err := getUserAccount(jellyfinURL, jellyfinToken)
-	errAccounts := err
-	if err != nil {
-		c.logger.Error("Failed to get user accounts", "error", err)
+	userAccounts, errAccounts := getUserAccount(jellyfinURL, jellyfinToken)
+	if errAccounts != nil {
+		c.logger.Error("Failed to get user accounts", "error", errAccounts)
 	}
 
-	activeSessions, err := utils.GetActiveSessions(jellyfinURL, jellyfinToken)
-	errActive := err
-	if err != nil {
-		c.logger.Error("Failed to get user sessions", "error", err)
+	activeSessions, errActive := utils.GetActiveSessions(jellyfinURL, jellyfinToken)
+	if errActive != nil {
+		c.logger.Error("Failed to get user sessions", "error", errActive)
 	}
 
 	if errAccounts == nil {
@@ -180,6 +178,7 @@ func (c *userCollector) Update(ch chan<- prometheus.Metric) error {
 			ch <- prometheus.MustNewConstMetric(c.userActive,
 				prometheus.GaugeValue,
 				1,
+				session.SessionID(),
 				session.UserId,
 				session.UserName,
 				session.Client,

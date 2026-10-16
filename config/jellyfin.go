@@ -20,31 +20,54 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
-
-	"github.com/alecthomas/kingpin/v2"
 )
 
-// jellyfinURL and jellyfinToken are bound to their flags/env vars during
-// kingpin parsing. jellyfin.token is Required; jellyfin.address defaults to the
-// local server. They are dereferenced on every scrape via JellyfinInfo.
+// ConnectionFlags are the Jellyfin connection settings as kong flags, which the
+// exporter embeds in its command line (see Flags). jellyfin.token is required;
+// jellyfin.address defaults to the local server.
+type ConnectionFlags struct {
+	Address string `name:"jellyfin.address" env:"JELLYFIN_ADDRESS" default:"http://localhost:8096" placeholder:"http://localhost:8096" help:"Address to use for connecting to Jellyfin"`
+	Token   string `name:"jellyfin.token" env:"JELLYFIN_TOKEN" required:"" placeholder:"TOKEN" help:"API Token to use for connecting to Jellyfin"`
+}
+
+// connection is filled in when the command line is parsed. jellyfinURL and
+// jellyfinToken point into it and are dereferenced on every scrape via
+// JellyfinInfo.
 var (
-	jellyfinURL   = kingpin.Flag("jellyfin.address", "Address to use for connecting to Jellyfin").Envar("JELLYFIN_ADDRESS").PlaceHolder("http://localhost:8096").Default("http://localhost:8096").String()
-	jellyfinToken = kingpin.Flag("jellyfin.token", "API Token to use for connecting to Jellyfin").Envar("JELLYFIN_TOKEN").PlaceHolder("TOKEN").Required().String()
+	connection    ConnectionFlags
+	jellyfinURL   = &connection.Address
+	jellyfinToken = &connection.Token
 )
+
+// Flags returns the connection settings for the exporter to embed in its
+// command line with kong.Embed; parsing fills them in place.
+func Flags() *ConnectionFlags {
+	return &connection
+}
 
 // JellyfinInfo returns the configured Jellyfin base URL and API token, or an
 // error if either is blank. Collectors call it at the start of every Update so
 // a missing token surfaces as a failed scrape instead of a malformed request.
+//
+// Both values are normalised here rather than at each call site: surrounding
+// whitespace is trimmed (a token read from a file or an environment variable
+// often carries a trailing newline, which would otherwise be rejected by
+// net/http as an invalid header value on every request) and any trailing
+// slashes are stripped from the address, so the "%s/Path" URLs the collectors
+// build never contain an empty path segment.
 func JellyfinInfo(logger *slog.Logger) (string, string, error) {
-	logger.Debug("Jellyfin URL", "Value", *jellyfinURL)
-	logger.Debug("Jellyfin token configured", "configured", *jellyfinToken != "")
+	url := strings.TrimRight(strings.TrimSpace(*jellyfinURL), "/")
+	token := strings.TrimSpace(*jellyfinToken)
 
-	if strings.TrimSpace(*jellyfinToken) == "" {
+	logger.Debug("Jellyfin URL", "Value", url)
+	logger.Debug("Jellyfin token configured", "configured", token != "")
+
+	if token == "" {
 		return "", "", errors.New("missing jellyfin token")
 	}
-	if strings.TrimSpace(*jellyfinURL) == "" {
+	if url == "" {
 		return "", "", errors.New("missing jellyfin address")
 	}
 
-	return *jellyfinURL, *jellyfinToken, nil
+	return url, token, nil
 }
