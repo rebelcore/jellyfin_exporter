@@ -1,0 +1,7 @@
+# Vulnerabilities that OSV-Scanner, and the OpenSSF Scorecard Vulnerabilities
+# check that runs it, should not report. Every entry needs a reason; remove it
+# once it no longer applies.
+
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+reason = "Affects only golang.org/x/crypto/openpgp, which the exporter never imports: the build uses x/crypto's bcrypt and blowfish packages, through exporter-toolkit, and govulncheck in CI reports no reachable vulnerabilities. The advisory has no fixed version."
