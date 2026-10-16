@@ -25,6 +25,9 @@ a [simple step-by-step guide](https://docs.rebelcore.org/guides/jellyfin/exporte
 The `jellyfin_exporter` listens on HTTP port 9594 by default.
 See the `--help` output for more options.
 
+Releases are signed and reproducible. To check a download, an image or a
+tag, see [Verifying releases](docs/verifying-releases.md).
+
 The flag `--jellyfin.token` is required. You can generate an API
 Key in the Jellyfin admin dashboard.
 

@@ -70,7 +70,9 @@ configuration, who can read the token directly.
    configuration file are trusted: they come from whoever runs the exporter.
 4. **Supply chain to build.** Go modules come through the Go module proxy and are
    verified against `go.sum`. Releases are built by GitHub Actions from signed
-   tags.
+   tags; their checksums and container images are signed with Sigstore, and the
+   binaries can be rebuilt bit-for-bit. See
+   [Verifying releases](verifying-releases.md).
 
 ### Secure design principles
 
