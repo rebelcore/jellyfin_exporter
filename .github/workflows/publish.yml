@@ -33,10 +33,18 @@ jobs:
       - name: Get CI Commands
         uses: rebelmediausa/promci@a0a95d4841b61b2611656c77e0525fae21883fb5 # v1.3.1
 
+      # promu stamps the build date, user and host into the binary. With
+      # SOURCE_DATE_EPOCH set it uses the commit time and "reproducible"
+      # instead, so the same tag always builds the same binary.
+      - name: Set the build date from the tagged commit
+        id: build_date
+        run: echo "epoch=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
+
       - name: Run Build
         uses: ./.github/promci/actions/build
         with:
           promu_codesign_binary: jellyfin_exporter
+          promu_opts: --env SOURCE_DATE_EPOCH=${{ steps.build_date.outputs.epoch }}
           parallelism: 6
           thread: ${{ matrix.thread }}
 
@@ -72,6 +80,9 @@ jobs:
       - 'Release'
     permissions:
       contents: write
+      # Keyless signing proves the workflow's identity to Sigstore with an
+      # OIDC token, so no signing key is stored anywhere.
+      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -91,3 +102,24 @@ jobs:
           docker_hub_login: ${{ secrets.DOCKER_HUB_LOGIN }}
           docker_hub_password: ${{ secrets.DOCKER_HUB_PASSWORD }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign the release checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cosign sign-blob --yes \
+            --bundle .tarballs/sha256sums.txt.sigstore.json \
+            .tarballs/sha256sums.txt
+          gh release upload "${TAG}" .tarballs/sha256sums.txt.sigstore.json --repo "${GITHUB_REPOSITORY}"
+
+      - name: Sign the container image
+        env:
+          IMAGE: docker.io/${{ secrets.DOCKER_HUB_ORG }}/jellyfin-exporter
+          TAG: ${{ github.ref_name }}
+        run: |
+          digest="$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{json .Manifest}}' | jq -r .digest)"
+          cosign sign --yes "${IMAGE}@${digest}"
