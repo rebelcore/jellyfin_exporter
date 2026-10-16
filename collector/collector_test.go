@@ -20,7 +20,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/alecthomas/kong"
@@ -614,4 +616,66 @@ func TestUsersCollectorUpdate_PartialErrorStillEmitsSessions(t *testing.T) {
 	if metrics != 1 {
 		t.Fatalf("expected 1 session metric, got %d", metrics)
 	}
+}
+
+// FuzzCollectors serves the same arbitrary bytes for every Jellyfin API request
+// and runs each registered collector against them. However malformed the
+// response, Update must return an error rather than panic, since a panic would
+// take down the whole scrape.
+func FuzzCollectors(f *testing.F) {
+	for _, seed := range []string{
+		`[]`,
+		`{}`,
+		`null`,
+		`{"not":"an array"}`,
+		`[{"Id":"s1","UserId":"u1","UserName":"Alice","PlayState":{"PositionTicks":-5,"IsPaused":true,"PlayMethod":"Transcode"},"NowPlayingItem":{"Name":"Title","Type":"Episode","SeriesName":"Show","ParentIndexNumber":1,"IndexNumber":2,"RunTimeTicks":0},"TranscodingInfo":{"IsAudioDirect":false,"TranscodeReasons":[" ","AudioCodecNotSupported"]}}]`,
+		`[{"PlayState":null,"NowPlayingItem":null,"TranscodingInfo":null}]`,
+		`[{"Name":"Bob","Id":"u2","LastActivityDate":"0001-01-01T00:00:00Z","Policy":{"IsAdministrator":true,"IsDisabled":true}}]`,
+	} {
+		f.Add([]byte(seed))
+	}
+
+	var body atomic.Pointer[[]byte]
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(*body.Load())
+	}))
+	f.Cleanup(srv.Close)
+
+	f.Cleanup(SnapshotCollectorStates())
+	f.Cleanup(func() {
+		if _, err := parseFlags("--jellyfin.address", testJellyfinURL, "--jellyfin.token", testJellyfinToken); err != nil {
+			f.Errorf("failed to restore flags: %v", err)
+		}
+	})
+	if _, err := parseFlags("--jellyfin.address", srv.URL, "--jellyfin.token", testJellyfinToken); err != nil {
+		f.Fatalf("failed to parse flags: %v", err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	names := slices.Sorted(maps.Keys(factories))
+	collectors := make([]Collector, len(names))
+	for i, name := range names {
+		c, err := factories[name](logger)
+		if err != nil {
+			f.Fatalf("%s: %v", name, err)
+		}
+		collectors[i] = c
+	}
+
+	f.Fuzz(func(_ *testing.T, b []byte) {
+		body.Store(&b)
+		for _, c := range collectors {
+			ch := make(chan prometheus.Metric)
+			drained := make(chan struct{})
+			go func() {
+				defer close(drained)
+				for range ch {
+				}
+			}()
+			_ = c.Update(ch) // an error is expected for most inputs; a panic is not
+			close(ch)
+			<-drained
+		}
+	})
 }
