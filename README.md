@@ -6,7 +6,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/rebelcore/jellyfin_exporter?style=for-the-badge&color=22C55E)](https://github.com/rebelcore/jellyfin_exporter/releases/latest)
 [![Docker Pulls](https://img.shields.io/docker/pulls/rebelcore/jellyfin-exporter?style=for-the-badge&color=1D63ED)](https://hub.docker.com/r/rebelcore/jellyfin-exporter)
 [![Docker Image Size](https://img.shields.io/docker/image-size/rebelcore/jellyfin-exporter/latest?style=for-the-badge&color=1D63ED)](https://hub.docker.com/r/rebelcore/jellyfin-exporter)
-[![Go Report Card](https://img.shields.io/badge/Go_Report-A%2B-00ADD8?style=for-the-badge)](https://goreportcard.com/report/github.com/rebelcore/jellyfin_exporter)
+[![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/rebelcore/jellyfin_exporter?style=for-the-badge&label=OpenSSF)](https://scorecard.dev/viewer/?uri=github.com/rebelcore/jellyfin_exporter)
 [![License](https://img.shields.io/badge/license-Apache%202-g?style=for-the-badge&color=8B5CF6)](LICENSE)
 
 Prometheus exporter for Jellyfin Media System metrics exposed
