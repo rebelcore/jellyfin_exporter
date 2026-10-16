@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.5.3
+* [CHANGE] Add a `session_id` label to `jellyfin_user_active` and the `jellyfin_now_playing_*` metrics
+* [CHANGE] Add a `path` label to `jellyfin_storage_free_bytes` and `jellyfin_storage_used_bytes`
+* [CHANGE] Replace kingpin with kong for command-line parsing; flags are unchanged, but `@file` arguments, `--help-long` and `--help-man` are no longer supported
+* [BUG FIX] Report every session when several share the same labels, instead of dropping all but one with a "collected before" error #119
+* [BUG FIX] Report every folder of a library that maps several folders, instead of only the first
+* [BUG FIX] Emit `jellyfin_up` as 0 when the Jellyfin server is unreachable
+* [BUG FIX] Stop counting remuxing sessions in `jellyfin_transcoding_active` and `jellyfin_transcoding_sessions`
+* [BUG FIX] Trim whitespace from the API token and trailing slashes from `--jellyfin.address`
+* [BUG FIX] Reject an invalid `--web.telemetry-path` at startup instead of panicking
+* [BUG FIX] Return 400 for an `exclude[]` query that excludes every collector
+* [BUG FIX] Reject a non-numeric `--collector.activity.days`
+* [BUG FIX] Keep API error messages valid UTF-8 when truncating them
+* [CLEANUP] Upgrade Go toolchain to 1.27.2
+* [CLEANUP] Update dependencies (client_golang 1.25.0, common 0.72.1, exporter-toolkit 0.20.0)
+* [CLEANUP] Update Alpine base image to 3.24.2
+* [CLEANUP] Group Dependabot updates and add a 7-day release cooldown
+* [CLEANUP] Fix the integration tests and tidy collector internals
+
 ## 1.5.2
 * [ENHANCEMENT] Add `--web.enable-pprof` flag to expose pprof profiling endpoints (disabled by default)
 * [BUG FIX] Fix a data race when a scrape request excludes every collector
