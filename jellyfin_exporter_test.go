@@ -720,6 +720,28 @@ func TestValidateMetricsPath(t *testing.T) {
 	}
 }
 
+// FuzzBuildMux checks the property the table above samples: every path that
+// validateMetricsPath accepts can be registered. http.ServeMux panics on a
+// malformed or conflicting pattern, so a path that slipped through validation
+// would crash the exporter at startup.
+func FuzzBuildMux(f *testing.F) {
+	for _, path := range []string{
+		"/metrics", "/", "/a/b/metrics", "/metrics/", "/debug/pprof", "/debug/pprof/x",
+		"", "metrics", " /metrics", "/m{id}", "/%zz", "/a/../b", "//", "/a?b=c", "/a#b",
+	} {
+		f.Add(path, false)
+		f.Add(path, true)
+	}
+	f.Fuzz(func(t *testing.T, path string, enablePprof bool) {
+		if validateMetricsPath(path, enablePprof) != nil {
+			return
+		}
+		if _, err := buildMux(path, http.NotFoundHandler(), enablePprof); err != nil {
+			t.Fatalf("buildMux rejected %q (pprof %t), which validateMetricsPath accepted: %v", path, enablePprof, err)
+		}
+	})
+}
+
 func TestParseFlags_Defaults(t *testing.T) {
 	restoreTestFlags(t)
 	// Empty environment variables count as unset, so every flag below keeps
