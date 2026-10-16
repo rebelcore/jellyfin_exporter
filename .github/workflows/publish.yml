@@ -33,10 +33,18 @@ jobs:
       - name: Get CI Commands
         uses: rebelmediausa/promci@a0a95d4841b61b2611656c77e0525fae21883fb5 # v1.3.1
 
+      # promu stamps the build date, user and host into the binary. With
+      # SOURCE_DATE_EPOCH set it uses the commit time and "reproducible"
+      # instead, so the same tag always builds the same binary.
+      - name: Set the build date from the tagged commit
+        id: build_date
+        run: echo "epoch=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
+
       - name: Run Build
         uses: ./.github/promci/actions/build
         with:
           promu_codesign_binary: jellyfin_exporter
+          promu_opts: --env SOURCE_DATE_EPOCH=${{ steps.build_date.outputs.epoch }}
           parallelism: 6
           thread: ${{ matrix.thread }}
 
