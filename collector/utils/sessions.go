@@ -14,7 +14,6 @@
 package utils
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -94,6 +93,18 @@ type JellyfinSession struct {
 	TranscodingInfo    *TranscodingInfo `json:"TranscodingInfo"`
 }
 
+// SessionID returns the session's identifier, falling back to "unknown" when
+// the server reported none. Per-session metrics are keyed by this value, so it
+// must be non-empty: two sessions that agree on every other label would
+// otherwise produce the same label set and the registry would reject the
+// duplicate, silently dropping one of them.
+func (s JellyfinSession) SessionID() string {
+	if s.Id == "" {
+		return "unknown"
+	}
+	return s.Id
+}
+
 // GetActiveSessions returns every session seen active within the last 60
 // seconds, including idle ones (those without a NowPlayingItem).
 func GetActiveSessions(jellyfinURL, jellyfinToken string) ([]JellyfinSession, error) {
@@ -115,13 +126,9 @@ func GetNowPlayingSessions(jellyfinURL, jellyfinToken string) ([]JellyfinSession
 // array into JellyfinSession values.
 func getSessions(jellyfinURL, jellyfinToken string, query url.Values) ([]JellyfinSession, error) {
 	jellyfinAPIURL := fmt.Sprintf("%s/Sessions?%s", jellyfinURL, query.Encode())
-	rawBody, err := GetHTTP(jellyfinAPIURL, jellyfinToken)
-	if err != nil {
-		return nil, err
-	}
 	var sessions []JellyfinSession
-	if err := json.Unmarshal(rawBody, &sessions); err != nil {
-		return nil, fmt.Errorf("unexpected response from Jellyfin API: %w", err)
+	if err := GetJSON(jellyfinAPIURL, jellyfinToken, &sessions); err != nil {
+		return nil, err
 	}
 	return sessions, nil
 }

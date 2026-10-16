@@ -16,23 +16,24 @@
 package collector
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"strconv"
 	"strings"
 
-	"github.com/alecthomas/kingpin/v2"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/rebelcore/jellyfin_exporter/collector/utils"
 	"github.com/rebelcore/jellyfin_exporter/config"
 )
 
-// jellyfinReportDays is the look-back window (in days) for the Playback
-// Reporting query, defaulting to ~100 years so the full history is included.
-var (
-	jellyfinReportDays = kingpin.Flag("collector.activity.days", "Jellyfin Playback Reporting search in days (Default to 100 Years).").Default("36525").String()
-)
+// activityFlags holds the activity collector's options. Days is the look-back
+// window for the Playback Reporting query, defaulting to ~100 years so the full
+// history is included.
+var activityFlags struct {
+	Days int `name:"collector.activity.days" default:"36525" help:"Jellyfin Playback Reporting search in days (Default to 100 Years)."`
+}
 
 // JellyfinUserActivity is one row from the Playback Reporting plugin's
 // user_activity report. Field tags are snake_case to match that plugin's API.
@@ -59,6 +60,7 @@ type activityCollector struct {
 
 func init() {
 	registerCollector("activity", defaultDisabled, NewActivityCollector)
+	registerFlags(&activityFlags)
 }
 
 // NewActivityCollector builds the activity collector and its descriptor.
@@ -82,15 +84,13 @@ func NewActivityCollector(logger *slog.Logger) (Collector, error) {
 
 // getUserActivity queries the Playback Reporting plugin's user_activity endpoint
 // over the given look-back window (in days) and decodes the result.
-func getUserActivity(jellyfinURL, jellyfinToken, days string) ([]JellyfinUserActivity, error) {
-	jellyfinAPIURL := fmt.Sprintf("%s/user_usage_stats/user_activity?days=%s", jellyfinURL, days)
-	rawBody, err := utils.GetHTTP(jellyfinAPIURL, jellyfinToken)
-	if err != nil {
-		return nil, err
-	}
+func getUserActivity(jellyfinURL, jellyfinToken string, days int) ([]JellyfinUserActivity, error) {
+	values := url.Values{}
+	values.Set("days", strconv.Itoa(days))
+	jellyfinAPIURL := fmt.Sprintf("%s/user_usage_stats/user_activity?%s", jellyfinURL, values.Encode())
 	var activityList []JellyfinUserActivity
-	if err := json.Unmarshal(rawBody, &activityList); err != nil {
-		return nil, fmt.Errorf("unexpected response from Jellyfin API: %w", err)
+	if err := utils.GetJSON(jellyfinAPIURL, jellyfinToken, &activityList); err != nil {
+		return nil, err
 	}
 	return activityList, nil
 }
@@ -103,7 +103,7 @@ func (c *activityCollector) Update(ch chan<- prometheus.Metric) error {
 		c.logger.Error("Failed to get Jellyfin config", "error", err)
 		return err
 	}
-	activityList, err := getUserActivity(jellyfinURL, jellyfinToken, *jellyfinReportDays)
+	activityList, err := getUserActivity(jellyfinURL, jellyfinToken, activityFlags.Days)
 	if err != nil {
 		c.logger.Error("Failed to get user activity", "error", err)
 		return err

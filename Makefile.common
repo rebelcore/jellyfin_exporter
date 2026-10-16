@@ -51,13 +51,13 @@ ifneq ($(shell command -v gotestsum 2> /dev/null),)
 endif
 endif
 
-PROMU_VERSION ?= 0.17.0
+PROMU_VERSION ?= 0.20.0
 PROMU_URL     := https://github.com/prometheus/promu/releases/download/v$(PROMU_VERSION)/promu-$(PROMU_VERSION).$(GO_BUILD_PLATFORM).tar.gz
 
 SKIP_GOLANGCI_LINT :=
 GOLANGCI_LINT :=
 GOLANGCI_LINT_OPTS ?=
-GOLANGCI_LINT_VERSION ?= v2.12.2
+GOLANGCI_LINT_VERSION ?= v2.14.0
 
 ifeq ($(GOHOSTOS),$(filter $(GOHOSTOS),linux darwin))
 	ifeq ($(GOHOSTARCH),$(filter $(GOHOSTARCH),amd64 i386 arm64))

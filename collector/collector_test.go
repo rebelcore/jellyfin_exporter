@@ -16,15 +16,20 @@ package collector
 import (
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
-	"github.com/alecthomas/kingpin/v2"
+	"github.com/alecthomas/kong"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
+
+	"github.com/rebelcore/jellyfin_exporter/config"
 )
 
 const testJellyfinToken = "test-token"
@@ -147,12 +152,8 @@ func TestMain(m *testing.M) {
 	}))
 
 	testJellyfinURL = srv.URL
-	_, err := kingpin.CommandLine.Parse([]string{
-		"--jellyfin.address", testJellyfinURL,
-		"--jellyfin.token", testJellyfinToken,
-	})
-	if err != nil {
-		logger.Error("failed to parse kingpin flags", "err", err)
+	if _, err := parseFlags("--jellyfin.address", testJellyfinURL, "--jellyfin.token", testJellyfinToken); err != nil {
+		logger.Error("failed to parse flags", "err", err)
 		srv.Close()
 		os.Exit(2)
 	}
@@ -162,14 +163,24 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// parseFlags parses args against the connection and collector flags, as the
+// exporter's command line does, so every flag's default is applied too.
+func parseFlags(args ...string) (*kong.Context, error) {
+	options := []kong.Option{kong.Embed(config.Flags())}
+	for _, group := range Flags() {
+		options = append(options, kong.Embed(group))
+	}
+	parser, err := kong.New(&struct{}{}, options...)
+	if err != nil {
+		return nil, err
+	}
+	return parser.Parse(args)
+}
+
 func setJellyfinFlags(t *testing.T, url, token string) {
 	t.Helper()
 
-	_, err := kingpin.CommandLine.Parse([]string{
-		"--jellyfin.address", url,
-		"--jellyfin.token", token,
-	})
-	if err != nil {
+	if _, err := parseFlags("--jellyfin.address", url, "--jellyfin.token", token); err != nil {
 		t.Fatalf("failed to parse flags: %v", err)
 	}
 }
@@ -218,19 +229,47 @@ func TestDisableDefaultCollectors_RespectsForcedCollectors(t *testing.T) {
 	}
 }
 
-func TestCollectorFlagAction_TracksForcedCollectors(t *testing.T) {
-	prev := make(map[string]bool, len(forcedCollectors))
-	for k, v := range forcedCollectors {
-		prev[k] = v
-	}
-	defer func() { forcedCollectors = prev }()
+func TestFlags_TogglesUpdateCollectorState(t *testing.T) {
+	t.Cleanup(SnapshotCollectorStates())
+	t.Cleanup(func() { setJellyfinFlags(t, testJellyfinURL, testJellyfinToken) })
 
-	forcedCollectors = map[string]bool{}
-	if err := collectorFlagAction("media")(nil); err != nil {
+	if _, err := parseFlags("--jellyfin.token", "token", "--collector.transcoding", "--no-collector.users"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !forcedCollectors["media"] {
-		t.Fatalf("expected media to be forced")
+
+	// transcoding is off by default and users on, so both flags flip them.
+	for name, enabled := range collectorState {
+		want := collectorDefaults[name]
+		switch name {
+		case "transcoding":
+			want = true
+		case "users":
+			want = false
+		}
+		if *enabled != want {
+			t.Errorf("collector %q: want enabled=%t, have %t", name, want, *enabled)
+		}
+	}
+	if want, have := 36525, activityFlags.Days; want != have {
+		t.Errorf("want --collector.activity.days default %d, have %d", want, have)
+	}
+}
+
+func TestMarkForcedCollectors_TracksFlagsGivenOnTheCommandLine(t *testing.T) {
+	t.Cleanup(SnapshotCollectorStates())
+	t.Cleanup(func() { setJellyfinFlags(t, testJellyfinURL, testJellyfinToken) })
+
+	clear(forcedCollectors)
+	ctx, err := parseFlags("--jellyfin.token", "token", "--collector.media", "--no-collector.users", "--collector.activity.days", "7")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	MarkForcedCollectors(ctx)
+
+	// Both toggles count, whichever way they point; collector options such as
+	// --collector.activity.days do not.
+	if want := map[string]bool{"media": true, "users": true}; !maps.Equal(forcedCollectors, want) {
+		t.Fatalf("want forced collectors %v, have %v", want, forcedCollectors)
 	}
 }
 
@@ -577,4 +616,66 @@ func TestUsersCollectorUpdate_PartialErrorStillEmitsSessions(t *testing.T) {
 	if metrics != 1 {
 		t.Fatalf("expected 1 session metric, got %d", metrics)
 	}
+}
+
+// FuzzCollectors serves the same arbitrary bytes for every Jellyfin API request
+// and runs each registered collector against them. However malformed the
+// response, Update must return an error rather than panic, since a panic would
+// take down the whole scrape.
+func FuzzCollectors(f *testing.F) {
+	for _, seed := range []string{
+		`[]`,
+		`{}`,
+		`null`,
+		`{"not":"an array"}`,
+		`[{"Id":"s1","UserId":"u1","UserName":"Alice","PlayState":{"PositionTicks":-5,"IsPaused":true,"PlayMethod":"Transcode"},"NowPlayingItem":{"Name":"Title","Type":"Episode","SeriesName":"Show","ParentIndexNumber":1,"IndexNumber":2,"RunTimeTicks":0},"TranscodingInfo":{"IsAudioDirect":false,"TranscodeReasons":[" ","AudioCodecNotSupported"]}}]`,
+		`[{"PlayState":null,"NowPlayingItem":null,"TranscodingInfo":null}]`,
+		`[{"Name":"Bob","Id":"u2","LastActivityDate":"0001-01-01T00:00:00Z","Policy":{"IsAdministrator":true,"IsDisabled":true}}]`,
+	} {
+		f.Add([]byte(seed))
+	}
+
+	var body atomic.Pointer[[]byte]
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(*body.Load())
+	}))
+	f.Cleanup(srv.Close)
+
+	f.Cleanup(SnapshotCollectorStates())
+	f.Cleanup(func() {
+		if _, err := parseFlags("--jellyfin.address", testJellyfinURL, "--jellyfin.token", testJellyfinToken); err != nil {
+			f.Errorf("failed to restore flags: %v", err)
+		}
+	})
+	if _, err := parseFlags("--jellyfin.address", srv.URL, "--jellyfin.token", testJellyfinToken); err != nil {
+		f.Fatalf("failed to parse flags: %v", err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	names := slices.Sorted(maps.Keys(factories))
+	collectors := make([]Collector, len(names))
+	for i, name := range names {
+		c, err := factories[name](logger)
+		if err != nil {
+			f.Fatalf("%s: %v", name, err)
+		}
+		collectors[i] = c
+	}
+
+	f.Fuzz(func(_ *testing.T, b []byte) {
+		body.Store(&b)
+		for _, c := range collectors {
+			ch := make(chan prometheus.Metric)
+			drained := make(chan struct{})
+			go func() {
+				defer close(drained)
+				for range ch {
+				}
+			}()
+			_ = c.Update(ch) // an error is expected for most inputs; a panic is not
+			close(ch)
+			<-drained
+		}
+	})
 }

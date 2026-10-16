@@ -148,23 +148,30 @@ func NewTranscodingCollector(logger *slog.Logger) (Collector, error) {
 	}, nil
 }
 
-// isSessionTranscoding reports whether a session counts as transcoding: either
-// its play method is "Transcode" or the server attached TranscodingInfo.
+// isSessionTranscoding reports whether a session is actually re-encoding.
+//
+// The presence of TranscodingInfo alone does not mean transcoding: Jellyfin
+// attaches it to every ffmpeg job, including a pure container remux that copies
+// both streams ("-codec:v copy -codec:a copy"). Jellyfin's own dashboard calls
+// that "Remuxing" and reports it separately from "Transcoding", so counting it
+// here would make the active/session gauges fire for sessions that are not
+// re-encoding anything. When TranscodingInfo is present it is authoritative and
+// the direct-stream flags decide; otherwise fall back to the reported play
+// method. A missing video codec means an audio-only item, which is direct
+// whenever its audio is.
 func isSessionTranscoding(session utils.JellyfinSession) bool {
-	if session.PlayState != nil && strings.EqualFold(session.PlayState.PlayMethod, "Transcode") {
-		return true
+	if ti := session.TranscodingInfo; ti != nil {
+		videoDirect := ti.IsVideoDirect || ti.VideoCodec == ""
+		return !videoDirect || !ti.IsAudioDirect
 	}
-	return session.TranscodingInfo != nil
+	return session.PlayState != nil && strings.EqualFold(session.PlayState.PlayMethod, "Transcode")
 }
 
 // transcodingLabels builds the label set for jellyfin_transcoding_session_info,
 // using "unknown" for a missing session id and tolerating an absent PlayState,
 // NowPlayingItem or TranscodingInfo.
 func transcodingLabels(session utils.JellyfinSession) []string {
-	sessionID := session.Id
-	if sessionID == "" {
-		sessionID = "unknown"
-	}
+	sessionID := session.SessionID()
 
 	state := session.PlayState
 	method := ""
@@ -242,11 +249,8 @@ func (c *transcodingCollector) Update(ch chan<- prometheus.Metric) error {
 		labels := transcodingLabels(session)
 		ch <- prometheus.MustNewConstMetric(c.sessionInfo, prometheus.GaugeValue, 1, labels...)
 
-		sessionID := labels[0]
-		paused := 0.0
-		if session.PlayState != nil && session.PlayState.IsPaused {
-			paused = 1.0
-		}
+		sessionID := session.SessionID()
+		paused := utils.BoolToFloat(session.PlayState != nil && session.PlayState.IsPaused)
 		ch <- prometheus.MustNewConstMetric(c.sessionPaused, prometheus.GaugeValue, paused, sessionID)
 
 		if session.TranscodingInfo != nil {
@@ -272,10 +276,7 @@ func (c *transcodingCollector) Update(ch chan<- prometheus.Metric) error {
 	}
 
 	// Summary metrics: a single active flag plus the total transcoding count.
-	active := 0.0
-	if count > 0 {
-		active = 1.0
-	}
+	active := utils.BoolToFloat(count > 0)
 	c.logger.Debug("Jellyfin transcoding state", "active", active, "sessions", count)
 	ch <- prometheus.MustNewConstMetric(c.active, prometheus.GaugeValue, active)
 	ch <- prometheus.MustNewConstMetric(c.sessions, prometheus.GaugeValue, float64(count))

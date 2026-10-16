@@ -19,7 +19,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/prometheus/common/version"
 )
@@ -190,4 +192,36 @@ func TestGetHTTP_Non2xxBodyTruncatedInError(t *testing.T) {
 	if len(err.Error()) > maxErrorSnippetBytes+128 {
 		t.Fatalf("error message not truncated: %d bytes", len(err.Error()))
 	}
+}
+
+// FuzzGetHTTP_ErrorSnippet checks that the error for a non-2xx response stays
+// valid UTF-8 and bounded in size, whatever bytes the body holds.
+func FuzzGetHTTP_ErrorSnippet(f *testing.F) {
+	f.Add([]byte("upstream failure"))
+	// One ASCII byte puts the snippet cut in the middle of a two-byte rune.
+	f.Add([]byte("x" + strings.Repeat("é", maxErrorSnippetBytes)))
+	f.Add([]byte{0xff, 0xfe, ' ', 'x'})
+
+	var body atomic.Pointer[[]byte]
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write(*body.Load())
+	}))
+	f.Cleanup(srv.Close)
+
+	const prefix = "unexpected HTTP status 502 Bad Gateway: "
+	f.Fuzz(func(t *testing.T, b []byte) {
+		body.Store(&b)
+		_, err := GetHTTP(srv.URL, "token")
+		if err == nil {
+			t.Fatal("want an error for a 502 response")
+		}
+		msg := err.Error()
+		if !utf8.ValidString(msg) {
+			t.Fatalf("error is not valid UTF-8: %q", msg)
+		}
+		if limit := len(prefix) + maxErrorSnippetBytes + len("..."); len(msg) > limit {
+			t.Fatalf("error is %d bytes, want at most %d", len(msg), limit)
+		}
+	})
 }

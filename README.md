@@ -6,7 +6,8 @@
 [![GitHub Release](https://img.shields.io/github/v/release/rebelcore/jellyfin_exporter?style=for-the-badge&color=22C55E)](https://github.com/rebelcore/jellyfin_exporter/releases/latest)
 [![Docker Pulls](https://img.shields.io/docker/pulls/rebelcore/jellyfin-exporter?style=for-the-badge&color=1D63ED)](https://hub.docker.com/r/rebelcore/jellyfin-exporter)
 [![Docker Image Size](https://img.shields.io/docker/image-size/rebelcore/jellyfin-exporter/latest?style=for-the-badge&color=1D63ED)](https://hub.docker.com/r/rebelcore/jellyfin-exporter)
-[![Go Report Card](https://img.shields.io/badge/Go_Report-A%2B-00ADD8?style=for-the-badge)](https://goreportcard.com/report/github.com/rebelcore/jellyfin_exporter)
+[![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/rebelcore/jellyfin_exporter?style=for-the-badge&label=OpenSSF)](https://scorecard.dev/viewer/?uri=github.com/rebelcore/jellyfin_exporter)
+[![OpenSSF Best Practices](https://img.shields.io/cii/level/15602?style=for-the-badge&label=OpenSSF%20Best%20Practices)](https://www.bestpractices.dev/projects/15602)
 [![License](https://img.shields.io/badge/license-Apache%202-g?style=for-the-badge&color=8B5CF6)](LICENSE)
 
 Prometheus exporter for Jellyfin Media System metrics exposed
@@ -23,6 +24,9 @@ a [simple step-by-step guide](https://docs.rebelcore.org/guides/jellyfin/exporte
 
 The `jellyfin_exporter` listens on HTTP port 9594 by default.
 See the `--help` output for more options.
+
+Releases are signed and reproducible. To check a download, an image or a
+tag, see [Verifying releases](docs/verifying-releases.md).
 
 The flag `--jellyfin.token` is required. You can generate an API
 Key in the Jellyfin admin dashboard.
@@ -137,6 +141,12 @@ codec information, bitrate, framerate, resolution, hardware acceleration
 status, and transcoding reasons. Sessions are identified by a `session_id`
 label so you can track individual streams.
 
+Only sessions that are actually re-encoding are reported. Jellyfin also reports
+transcoding details for a container remux, where the video and audio streams
+are copied untouched — its own dashboard labels those "Remuxing" — and those
+sessions are left out of every `jellyfin_transcoding_*` metric, including the
+`jellyfin_transcoding_active` and `jellyfin_transcoding_sessions` counts.
+
 ### Metrics Reference
 
 <details>
@@ -160,18 +170,18 @@ label so you can track individual streams.
 
 | Metric                            | Type  | Labels                                                                                                  |
 |-----------------------------------|-------|---------------------------------------------------------------------------------------------------------|
-| `jellyfin_now_playing_state`      | Gauge | user_id, username, device, type, title, series_title, series_season, series_episode, method             |
-| `jellyfin_now_playing_progress`   | Gauge | user_id, username, device, type, title, series_title, series_season, series_episode, method             |
-| `jellyfin_now_playing_position`   | Gauge | user_id, username, device, type, title, series_title, series_season, series_episode, method             |
-| `jellyfin_now_playing_duration`   | Gauge | user_id, username, device, type, title, series_title, series_season, series_episode, method             |
-| `jellyfin_now_playing_remaining`  | Gauge | user_id, username, device, type, title, series_title, series_season, series_episode, method             |
+| `jellyfin_now_playing_state`      | Gauge | session_id, user_id, username, device, type, title, series_title, series_season, series_episode, method |
+| `jellyfin_now_playing_progress`   | Gauge | session_id, user_id, username, device, type, title, series_title, series_season, series_episode, method |
+| `jellyfin_now_playing_position`   | Gauge | session_id, user_id, username, device, type, title, series_title, series_season, series_episode, method |
+| `jellyfin_now_playing_duration`   | Gauge | session_id, user_id, username, device, type, title, series_title, series_season, series_episode, method |
+| `jellyfin_now_playing_remaining`  | Gauge | session_id, user_id, username, device, type, title, series_title, series_season, series_episode, method |
 
 #### Users
 
 | Metric                  | Type  | Labels                                                       |
 |------------------------|-------|--------------------------------------------------------------|
 | `jellyfin_user_account` | Gauge | user_id, username, admin, last_access                        |
-| `jellyfin_user_active`  | Gauge | user_id, username, client, client_version, device, ip_address |
+| `jellyfin_user_active`  | Gauge | session_id, user_id, username, client, client_version, device, ip_address |
 
 #### Activity
 
@@ -183,8 +193,8 @@ label so you can track individual streams.
 
 | Metric                       | Type  | Labels         |
 |------------------------------|-------|----------------|
-| `jellyfin_storage_free_bytes` | Gauge | location, name |
-| `jellyfin_storage_used_bytes` | Gauge | location, name |
+| `jellyfin_storage_free_bytes` | Gauge | location, name, path |
+| `jellyfin_storage_used_bytes` | Gauge | location, name, path |
 
 #### Tasks
 

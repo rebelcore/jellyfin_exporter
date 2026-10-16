@@ -7,10 +7,14 @@ Rebel Media uses GitHub to manage reviews of pull requests.
   [MAINTAINERS.md](MAINTAINERS.md)) in the description of the pull request.
 
 * Relevant coding style guidelines are the [Go Code Review
-  Comments](https://code.google.com/p/go-wiki/wiki/CodeReviewComments)
+  Comments](https://go.dev/wiki/CodeReviewComments)
   and the _Formatting and style_ section of Peter Bourgon's [Go: Best
   Practices for Production
-  Environments](http://peter.bourgon.org/go-in-production/#formatting-and-style).
+  Environments](https://peter.bourgon.org/go-in-production/#formatting-and-style).
+
+* Add tests to the automated test suite (`make test`) for new functionality
+  and for bug fixes. Every pull request must pass CI, which fails below 90%
+  statement coverage.
 
 * Sign your work to certify that your changes were created by yourself, or you
   have the right to submit it under our license. Read
