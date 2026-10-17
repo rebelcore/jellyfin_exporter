@@ -53,6 +53,18 @@ jobs:
           git_gpg_key: ${{ secrets.GPG_KEY }}
           git_gpg_key_id: ${{ secrets.GPG_KEY_ID }}
 
+      # Pushing the tag is what starts the release, and it is the only thing
+      # that needs to. The push is authenticated with BOT_TOKEN, and a push made
+      # with a PAT does trigger other workflows where one made with the default
+      # GITHUB_TOKEN would not, so publish.yml starts from its own
+      # `on: push: tags` without being asked.
+      #
+      # Dispatching publish.yml from here as well ran it twice for every tag,
+      # once per trigger. The two share a concurrency group and do not cancel
+      # each other, so the duplicate waited its turn, rebuilt the whole
+      # six-thread matrix, and then failed against a release that already
+      # existed. publish.yml keeps its workflow_dispatch trigger for
+      # re-publishing a tag by hand; nothing should invoke it automatically.
       - name: Create Tag
         if: steps.tagcheck.outputs.exists != 'true'
         env:
@@ -64,11 +76,3 @@ jobs:
             git tag -s "${VERSION}" -m "Release $(cat VERSION)"
           fi
           git push --tags
-
-      - name: Run Publish workflow
-        if: steps.tagcheck.outputs.exists != 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.BOT_TOKEN }}
-          VERSION: ${{ env.VERSION }}
-        run: |
-          gh workflow run publish.yml --ref "${VERSION}"
