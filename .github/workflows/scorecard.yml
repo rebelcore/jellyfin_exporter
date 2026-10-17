@@ -2,7 +2,16 @@
 name: OSSF Scorecard
 
 on:
+  # For the Branch-Protection check, which only reads the default branch.
   branch_protection_rule:
+  # The published score is whatever this workflow last uploaded, so without a
+  # schedule it goes stale between pushes and the Maintained check decays with
+  # it. Weekly, off the hour, to avoid the load spike GitHub sees on the hour.
+  schedule:
+    - cron: '37 6 * * 2'
+  # Lets a scan be forced after something the score depends on changes outside a
+  # push — cutting a release, editing branch rules, publishing a badge.
+  workflow_dispatch:
   push:
     branches:
       - develop
