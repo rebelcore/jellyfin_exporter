@@ -133,6 +133,13 @@ edit the setting `Keep data for` and set it to `Forever`. The option
 show the max amount of data. You can modify the amount of days to pull
 from, but it's recommended to leave it at its default for best data reporting.
 
+For each user it reports the number of plays (`jellyfin_activity_count`),
+the total play time in seconds (`jellyfin_activity_play_time_seconds`) and
+the seconds since the user last started playing something, to the minute
+(`jellyfin_activity_last_seen_seconds`). The play count and play time are
+totals over the `collector.activity.days` window, so with the settings
+above they only go up, unless the plugin's data is reset.
+
 ### Transcoding Collector
 
 The `transcoding` collector can be enabled with `--collector.transcoding`.
@@ -185,9 +192,11 @@ sessions are left out of every `jellyfin_transcoding_*` metric, including the
 
 #### Activity
 
-| Metric                    | Type  | Labels                                        |
-|--------------------------|-------|-----------------------------------------------|
-| `jellyfin_activity_count` | Gauge | user_id, username, last_seen, total_play_time |
+| Metric                                | Type  | Labels            |
+|---------------------------------------|-------|-------------------|
+| `jellyfin_activity_count`             | Gauge | user_id, username |
+| `jellyfin_activity_play_time_seconds` | Gauge | user_id, username |
+| `jellyfin_activity_last_seen_seconds` | Gauge | user_id, username |
 
 #### Storage
 
