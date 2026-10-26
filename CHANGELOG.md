@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.0
+* [CHANGE] Remove the `last_seen` and `total_play_time` labels from `jellyfin_activity_count`, which created a new series every minute #128
+* [CHANGE] Build the container image from scratch; it holds only the exporter binary, has no shell and runs as user 65534
+* [ENHANCEMENT] Add `jellyfin_activity_play_time_seconds` and `jellyfin_activity_last_seen_seconds` to the `activity` collector #128
+* [ENHANCEMENT] Embed fallback CA roots, so `https://` Jellyfin addresses work without a system trust store
+* [CLEANUP] Upgrade Go toolchain to 1.27.3
+* [CLEANUP] Update dependencies (procfs 0.23.0, backoff 1.1.0)
+
 ## 1.5.3
 * [CHANGE] Add a `session_id` label to `jellyfin_user_active` and the `jellyfin_now_playing_*` metrics
 * [CHANGE] Add a `path` label to `jellyfin_storage_free_bytes` and `jellyfin_storage_used_bytes`
