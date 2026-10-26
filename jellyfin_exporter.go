@@ -40,6 +40,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/version"
 	"github.com/prometheus/exporter-toolkit/web"
+	// Mozilla's trusted roots, for systems that have none, such as a container
+	// image built from scratch. Go only falls back to them when the system
+	// provides no roots, so a host's own trust store still takes precedence.
+	_ "golang.org/x/crypto/x509roots/fallback"
 
 	"github.com/rebelcore/jellyfin_exporter/collector"
 	"github.com/rebelcore/jellyfin_exporter/config"
