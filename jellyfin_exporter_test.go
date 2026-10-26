@@ -22,7 +22,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"os/user"
 	"reflect"
 	"runtime"
 	"slices"
@@ -347,21 +346,18 @@ func TestRun_MetricsPathRoot(t *testing.T) {
 	}
 }
 
+// TestRun_RootUserBranch checks that the root warning follows the process UID,
+// so it still fires in a container image that has no /etc/passwd.
 func TestRun_RootUserBranch(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
 	prevListen := listenAndServe
-	prevCurrentUser := currentUser
+	prevCurrentUID := currentUID
 	prevNewLandingPage := newLandingPage
 	t.Cleanup(func() {
 		listenAndServe = prevListen
-		currentUser = prevCurrentUser
+		currentUID = prevCurrentUID
 		newLandingPage = prevNewLandingPage
 	})
 
-	currentUser = func() (*user.User, error) {
-		return &user.User{Uid: "0"}, nil
-	}
 	listenAndServe = func(_ *http.Server, _ *web.FlagConfig, _ *slog.Logger) error { return nil }
 
 	flags := &web.FlagConfig{
@@ -370,8 +366,17 @@ func TestRun_RootUserBranch(t *testing.T) {
 		WebConfigFile:      ptr(""),
 	}
 
-	if err := run("/metrics", false, 0, false, 1, false, flags, logger); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	for uid, wantWarning := range map[int]bool{0: true, 65534: false} {
+		var logs strings.Builder
+		logger := slog.New(slog.NewTextHandler(&logs, nil))
+		currentUID = func() int { return uid }
+
+		if err := run("/metrics", false, 0, false, 1, false, flags, logger); err != nil {
+			t.Fatalf("uid %d: unexpected error: %v", uid, err)
+		}
+		if have := strings.Contains(logs.String(), "running as root"); have != wantWarning {
+			t.Errorf("uid %d: want root warning %t, have %t", uid, wantWarning, have)
+		}
 	}
 }
 

@@ -25,7 +25,6 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"os"
-	"os/user"
 	"runtime"
 	"slices"
 	"strconv"
@@ -63,7 +62,7 @@ type handler struct {
 // substitute them; production code uses the real implementations assigned here.
 var (
 	listenAndServe       = web.ListenAndServe
-	currentUser          = user.Current
+	currentUID           = os.Getuid
 	newLandingPage       = web.NewLandingPage
 	newJellyfinCollector = collector.NewJellyfinCollector
 	registerWithRegistry = func(r *prometheus.Registry, c prometheus.Collector) error { return r.Register(c) }
@@ -320,7 +319,9 @@ func run(
 	logger.Info("Starting jellyfin_exporter", "version", version.Info(), "git_tag", gitTag())
 	logger.Info("Build context", "build_context", version.BuildContext())
 
-	if u, err := currentUser(); err == nil && u.Uid == "0" {
+	// Check the UID itself: looking the user up by name needs /etc/passwd,
+	// which a minimal container image doesn't have.
+	if currentUID() == 0 {
 		logger.Warn("Jellyfin Exporter is running as root user. This exporter is designed to run as unprivileged user, root is not required.")
 	}
 
