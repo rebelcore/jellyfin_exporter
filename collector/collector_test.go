@@ -72,7 +72,7 @@ func TestMain(m *testing.M) {
 			_, _ = w.Write([]byte(`{"MovieCount":10,"SeriesCount":2}`))
 		case "/user_usage_stats/user_activity":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`[{"user_id":"1","user_name":"Bob","total_count":3,"last_seen":" 2025-01-01 ","total_play_time":" 01:00:00 "}]`))
+			_, _ = w.Write([]byte(`[{"user_id":"1","user_name":"Bob","total_count":3,"total_time":3725,"last_seen":"2 hours 5 minutes ","total_play_time":"1 hour 2 minutes "}]`))
 		case "/ScheduledTasks":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`[
@@ -631,6 +631,7 @@ func FuzzCollectors(f *testing.F) {
 		`[{"Id":"s1","UserId":"u1","UserName":"Alice","PlayState":{"PositionTicks":-5,"IsPaused":true,"PlayMethod":"Transcode"},"NowPlayingItem":{"Name":"Title","Type":"Episode","SeriesName":"Show","ParentIndexNumber":1,"IndexNumber":2,"RunTimeTicks":0},"TranscodingInfo":{"IsAudioDirect":false,"TranscodeReasons":[" ","AudioCodecNotSupported"]}}]`,
 		`[{"PlayState":null,"NowPlayingItem":null,"TranscodingInfo":null}]`,
 		`[{"Name":"Bob","Id":"u2","LastActivityDate":"0001-01-01T00:00:00Z","Policy":{"IsAdministrator":true,"IsDisabled":true}}]`,
+		`[{"user_id":"1","user_name":"Bob","total_count":3,"total_time":3725,"last_seen":"1 year 2 weeks 3 days 4 hours 5 minutes "}]`,
 	} {
 		f.Add([]byte(seed))
 	}
