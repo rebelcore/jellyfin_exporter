@@ -26,8 +26,9 @@ vulnerability, see [SECURITY.md](../SECURITY.md).
 * **Validated input.** Flags are type-checked and validated at start-up. The
   `collect[]` query parameter accepts only enabled collector names, and
   `exclude[]` ignores unknown names with a warning.
-* **Least privilege.** The container image runs as the unprivileged `nobody`
-  user, and the exporter warns when it runs as root.
+* **Least privilege.** The container image is built from scratch and holds
+  only the exporter binary, with no shell or package manager. It runs as the
+  unprivileged user 65534, and the exporter warns when it runs as root.
 
 ## What you can't expect
 
@@ -76,15 +77,17 @@ configuration, who can read the token directly.
 
 ### Secure design principles
 
-* **Least privilege:** read-only use of the API, and the container image runs as
-  `nobody`.
+* **Least privilege:** read-only use of the API, and the container image holds
+  only the exporter binary and runs as an unprivileged user.
 * **Fail-safe defaults:** the token is required, pprof is off, TLS certificates
   are always verified, a response over the size limit fails the scrape instead
   of being truncated, and a failing collector reports
   `jellyfin_scrape_collector_success 0`.
 * **Economy of mechanism:** no state, no database and no write paths.
   Cryptography comes from Go's standard library and `golang.org/x/crypto`,
-  through exporter-toolkit.
+  through exporter-toolkit. The CA roots used when the system has none, as in
+  the container image, are embedded from
+  `golang.org/x/crypto/x509roots/fallback`.
 * **Complete mediation:** when basic authentication is configured,
   exporter-toolkit checks it on every request.
 * **Open design:** everything is open source and built on standard, reviewed

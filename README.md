@@ -73,6 +73,13 @@ services:
     restart: unless-stopped
 ```
 
+The image is built from scratch and holds only the exporter binary, so it
+has no shell: you can't `docker exec` into it, and a healthcheck can't run
+commands such as `wget` inside it. It runs as the unprivileged user 65534.
+It trusts the public certificate authorities for an `https://` Jellyfin
+address. To trust a private CA, mount its certificate into the container
+and point `SSL_CERT_FILE` at it.
+
 ## Grafana Dashboard
 Refer to [this repository](https://github.com/rebelcore/jellyfin_grafana) to check out the official dashboard for the exporter.
 
