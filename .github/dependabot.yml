@@ -41,15 +41,3 @@ updates:
           - "patch"
     cooldown:
       default-days: 7
-
-  # Base image: no cooldown on purpose. A re-pushed alpine tag is usually a
-  # security rebuild (digest bump) and those don't flow through the
-  # security-updates path, so a cooldown would only delay them.
-  - package-ecosystem: "docker"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "06:00"
-      timezone: "America/New_York"
-    open-pull-requests-limit: 10

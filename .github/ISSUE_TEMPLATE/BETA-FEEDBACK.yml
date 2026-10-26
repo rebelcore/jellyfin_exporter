@@ -3,6 +3,7 @@ name: Beta Feedback
 description: Share feedback from using the beta release.
 title: "[BETA]: "
 labels: ["beta","feedback"]
+assignees: ["rebel-bot"]
 body:
   - type: markdown
     attributes:

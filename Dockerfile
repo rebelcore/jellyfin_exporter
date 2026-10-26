@@ -1,8 +1,8 @@
-FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+FROM scratch
 
 ARG TARGETARCH
 COPY .build/linux-$TARGETARCH/jellyfin_exporter /bin/jellyfin_exporter
 
 EXPOSE      9594
-USER        nobody
+USER        65534:65534
 ENTRYPOINT  [ "/bin/jellyfin_exporter" ]

@@ -3,6 +3,7 @@ name: Bug Report
 description: Create a report to help us improve.
 title: "[BUG]: "
 labels: [ "bug" ]
+assignees: ["rebel-bot"]
 body:
   - type: markdown
     attributes:

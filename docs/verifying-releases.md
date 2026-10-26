@@ -50,13 +50,14 @@ the `quay.io/prometheus/golang-builder` image, with `SOURCE_DATE_EPOCH` set to
 the tagged commit's time. promu then stamps that date, and `reproducible` in
 place of the build user and host, so the same tag and Go version always produce
 the same binary. To rebuild the Linux amd64 binary you need Go, Docker and
-promu 0.20.0 or later, which `make promu` installs:
+promu 0.20.0 or later. `make promu` won't replace an older promu that is already
+installed, so install it with `go install`:
 
 ```bash
 git clone https://github.com/rebelcore/jellyfin_exporter.git
 cd jellyfin_exporter
 git checkout v1.5.3
-make promu
+GOBIN="$(go env GOPATH)/bin" go install github.com/prometheus/promu@v0.20.0
 export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
 "$(go env GOPATH)/bin/promu" crossbuild --env "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}" -p linux/amd64
 sha256sum .build/linux-amd64/jellyfin_exporter

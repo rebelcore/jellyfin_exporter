@@ -73,6 +73,13 @@ services:
     restart: unless-stopped
 ```
 
+The image is built from scratch and holds only the exporter binary, so it
+has no shell: you can't `docker exec` into it, and a healthcheck can't run
+commands such as `wget` inside it. It runs as the unprivileged user 65534.
+It trusts the public certificate authorities for an `https://` Jellyfin
+address. To trust a private CA, mount its certificate into the container
+and point `SSL_CERT_FILE` at it.
+
 ## Grafana Dashboard
 Refer to [this repository](https://github.com/rebelcore/jellyfin_grafana) to check out the official dashboard for the exporter.
 
@@ -133,6 +140,13 @@ edit the setting `Keep data for` and set it to `Forever`. The option
 show the max amount of data. You can modify the amount of days to pull
 from, but it's recommended to leave it at its default for best data reporting.
 
+For each user it reports the number of plays (`jellyfin_activity_count`),
+the total play time in seconds (`jellyfin_activity_play_time_seconds`) and
+the seconds since the user last started playing something, to the minute
+(`jellyfin_activity_last_seen_seconds`). The play count and play time are
+totals over the `collector.activity.days` window, so with the settings
+above they only go up, unless the plugin's data is reset.
+
 ### Transcoding Collector
 
 The `transcoding` collector can be enabled with `--collector.transcoding`.
@@ -185,9 +199,11 @@ sessions are left out of every `jellyfin_transcoding_*` metric, including the
 
 #### Activity
 
-| Metric                    | Type  | Labels                                        |
-|--------------------------|-------|-----------------------------------------------|
-| `jellyfin_activity_count` | Gauge | user_id, username, last_seen, total_play_time |
+| Metric                                | Type  | Labels            |
+|---------------------------------------|-------|-------------------|
+| `jellyfin_activity_count`             | Gauge | user_id, username |
+| `jellyfin_activity_play_time_seconds` | Gauge | user_id, username |
+| `jellyfin_activity_last_seen_seconds` | Gauge | user_id, username |
 
 #### Storage
 

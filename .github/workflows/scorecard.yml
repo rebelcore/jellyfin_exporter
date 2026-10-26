@@ -2,7 +2,16 @@
 name: OSSF Scorecard
 
 on:
+  # For the Branch-Protection check, which only reads the default branch.
   branch_protection_rule:
+  # The published score is whatever this workflow last uploaded, so without a
+  # schedule it goes stale between pushes and the Maintained check decays with
+  # it. Weekly, off the hour, to avoid the load spike GitHub sees on the hour.
+  schedule:
+    - cron: '37 6 * * 2'
+  # Lets a scan be forced after something the score depends on changes outside a
+  # push — cutting a release, editing branch rules, publishing a badge.
+  workflow_dispatch:
   push:
     branches:
       - develop
@@ -30,13 +39,13 @@ jobs:
           persist-credentials: false
 
       - name: Run Scorecard
-        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
         with:
           results_file: results.sarif
           results_format: sarif
           publish_results: true
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: results.sarif
