@@ -22,6 +22,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"slices"
@@ -129,7 +130,7 @@ func restoreTestFlags(t *testing.T) {
 // environment the tests run in cannot leak into what they parse.
 func clearFlagEnv(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"JELLYFIN_ADDRESS", "JELLYFIN_TOKEN", "GOMAXPROCS"} {
+	for _, name := range []string{"JELLYFIN_ADDRESS", "JELLYFIN_TOKEN", "JELLYFIN_TOKEN_FILE", "GOMAXPROCS"} {
 		t.Setenv(name, "")
 	}
 }
@@ -811,6 +812,57 @@ func TestParseFlags_RequiresToken(t *testing.T) {
 	}
 }
 
+func TestParseFlags_TokenFile(t *testing.T) {
+	restoreTestFlags(t)
+	clearFlagEnv(t)
+
+	path := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(path, []byte("file-token\n"), 0o600); err != nil {
+		t.Fatalf("writing the token file: %v", err)
+	}
+
+	for name, setup := range map[string]func(t *testing.T) []string{
+		"flag":        func(*testing.T) []string { return []string{"--jellyfin.token-file", path} },
+		"environment": func(t *testing.T) []string { t.Setenv("JELLYFIN_TOKEN_FILE", path); return nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseTestFlags(setup(t)...); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			_, token, err := config.JellyfinInfo(slog.New(slog.NewTextHandler(io.Discard, nil)))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if want, have := "file-token", token; want != have {
+				t.Fatalf("want token %q from the file, have %q", want, have)
+			}
+		})
+	}
+}
+
+func TestParseFlags_RejectsTokenWithTokenFile(t *testing.T) {
+	restoreTestFlags(t)
+	clearFlagEnv(t)
+
+	path := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(path, []byte("file-token"), 0o600); err != nil {
+		t.Fatalf("writing the token file: %v", err)
+	}
+
+	if _, err := parseTestFlags("--jellyfin.token", "token", "--jellyfin.token-file", path); err == nil {
+		t.Fatalf("want an error for --jellyfin.token with --jellyfin.token-file")
+	}
+}
+
+func TestParseFlags_RejectsMissingTokenFile(t *testing.T) {
+	restoreTestFlags(t)
+	clearFlagEnv(t)
+
+	if _, err := parseTestFlags("--jellyfin.token-file", filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Fatalf("want an error for a --jellyfin.token-file that does not exist")
+	}
+}
+
 func TestParseFlags_ListenAddresses(t *testing.T) {
 	restoreTestFlags(t)
 
@@ -906,7 +958,7 @@ func TestParseFlags_HelpListsEveryFlag(t *testing.T) {
 		"--web.telemetry-path", "--[no-]web.disable-exporter-metrics", "--web.max-requests",
 		"--[no-]collector.disable-defaults", "--runtime.gomaxprocs", "--[no-]web.enable-pprof",
 		"--web.listen-address", "--web.config.file", "--log.level", "--log.format", "--version",
-		"--jellyfin.address", "--jellyfin.token", "--collector.activity.days",
+		"--jellyfin.address", "--jellyfin.token", "--jellyfin.token-file", "--collector.activity.days",
 	}
 	for _, name := range []string{"activity", "media", "playing", "storage", "system", "tasks", "transcoding", "users"} {
 		want = append(want, "--[no-]collector."+name)

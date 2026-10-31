@@ -16,6 +16,8 @@ package config
 import (
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -122,5 +124,50 @@ func TestJellyfinInfo_WhitespaceOnlyTokenErrors(t *testing.T) {
 
 	if _, _, err := JellyfinInfo(logger); err == nil {
 		t.Fatalf("expected an error for a whitespace-only token")
+	}
+}
+
+// TestJellyfinInfo_ReadsTokenFileOnEveryCall pins --jellyfin.token-file's
+// contract: the token is read from the file on each call, so a rotated secret
+// takes effect without a restart, and is trimmed like a flag value.
+func TestJellyfinInfo_ReadsTokenFileOnEveryCall(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	prevURL, prevToken, prevTokenFile := *jellyfinURL, *jellyfinToken, *jellyfinTokenFile
+	t.Cleanup(func() { *jellyfinURL, *jellyfinToken, *jellyfinTokenFile = prevURL, prevToken, prevTokenFile })
+
+	path := filepath.Join(t.TempDir(), "token")
+	*jellyfinURL = "http://jellyfin:8096"
+	*jellyfinToken = ""
+	*jellyfinTokenFile = path
+
+	for _, want := range []string{"first", "second"} {
+		if err := os.WriteFile(path, []byte(want+"\n"), 0o600); err != nil {
+			t.Fatalf("writing the token file: %v", err)
+		}
+		_, have, err := JellyfinInfo(logger)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if want != have {
+			t.Fatalf("want token %q, have %q", want, have)
+		}
+	}
+}
+
+// TestJellyfinInfo_UnreadableTokenFileErrors ensures a token file that has
+// gone missing fails the scrape instead of sending an empty credential.
+func TestJellyfinInfo_UnreadableTokenFileErrors(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	prevURL, prevToken, prevTokenFile := *jellyfinURL, *jellyfinToken, *jellyfinTokenFile
+	t.Cleanup(func() { *jellyfinURL, *jellyfinToken, *jellyfinTokenFile = prevURL, prevToken, prevTokenFile })
+
+	*jellyfinURL = "http://jellyfin:8096"
+	*jellyfinToken = ""
+	*jellyfinTokenFile = filepath.Join(t.TempDir(), "missing")
+
+	if _, _, err := JellyfinInfo(logger); err == nil {
+		t.Fatalf("expected an error for an unreadable token file")
 	}
 }
