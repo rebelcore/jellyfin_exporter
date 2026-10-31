@@ -28,8 +28,8 @@ See the `--help` output for more options.
 Releases are signed and reproducible. To check a download, an image or a
 tag, see [Verifying releases](docs/verifying-releases.md).
 
-The flag `--jellyfin.token` is required. You can generate an API
-Key in the Jellyfin admin dashboard.
+The flag `--jellyfin.token`, or `--jellyfin.token-file` below, is required.
+You can generate an API Key in the Jellyfin admin dashboard.
 
 If you want to use ENV based flags you can use the following.
 
@@ -37,6 +37,12 @@ If you want to use ENV based flags you can use the following.
 JELLYFIN_ADDRESS=http://localhost:8096
 JELLYFIN_TOKEN=TOKEN
 ```
+
+Instead of the token itself, `--jellyfin.token-file` (`JELLYFIN_TOKEN_FILE`)
+takes the path of a file that holds it, such as a Docker or Kubernetes
+secret. This keeps the token out of the process arguments and environment.
+The file is read on every scrape, so a rotated token takes effect without a
+restart.
 
 ### Ansible
 

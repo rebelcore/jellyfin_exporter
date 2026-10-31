@@ -18,25 +18,30 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 )
 
 // ConnectionFlags are the Jellyfin connection settings as kong flags, which the
-// exporter embeds in its command line (see Flags). jellyfin.token is required;
-// jellyfin.address defaults to the local server.
+// exporter embeds in its command line (see Flags). Exactly one of
+// jellyfin.token and jellyfin.token-file is required; jellyfin.address
+// defaults to the local server.
 type ConnectionFlags struct {
-	Address string `name:"jellyfin.address" env:"JELLYFIN_ADDRESS" default:"http://localhost:8096" placeholder:"http://localhost:8096" help:"Address to use for connecting to Jellyfin"`
-	Token   string `name:"jellyfin.token" env:"JELLYFIN_TOKEN" required:"" placeholder:"TOKEN" help:"API Token to use for connecting to Jellyfin"`
+	Address   string `name:"jellyfin.address" env:"JELLYFIN_ADDRESS" default:"http://localhost:8096" placeholder:"http://localhost:8096" help:"Address to use for connecting to Jellyfin"`
+	Token     string `name:"jellyfin.token" env:"JELLYFIN_TOKEN" required:"" xor:"token" placeholder:"TOKEN" help:"API Token to use for connecting to Jellyfin"`
+	TokenFile string `name:"jellyfin.token-file" env:"JELLYFIN_TOKEN_FILE" type:"existingfile" required:"" xor:"token" placeholder:"FILE" help:"File holding the API Token, read on every scrape; use instead of --jellyfin.token"`
 }
 
-// connection is filled in when the command line is parsed. jellyfinURL and
-// jellyfinToken point into it and are dereferenced on every scrape via
-// JellyfinInfo.
+// connection is filled in when the command line is parsed. jellyfinURL,
+// jellyfinToken and jellyfinTokenFile point into it and are dereferenced on
+// every scrape via JellyfinInfo.
 var (
-	connection    ConnectionFlags
-	jellyfinURL   = &connection.Address
-	jellyfinToken = &connection.Token
+	connection        ConnectionFlags
+	jellyfinURL       = &connection.Address
+	jellyfinToken     = &connection.Token
+	jellyfinTokenFile = &connection.TokenFile
 )
 
 // Flags returns the connection settings for the exporter to embed in its
@@ -49,6 +54,10 @@ func Flags() *ConnectionFlags {
 // error if either is blank. Collectors call it at the start of every Update so
 // a missing token surfaces as a failed scrape instead of a malformed request.
 //
+// With --jellyfin.token-file the token is read from the file on every call, so
+// a rotated secret takes effect on the next scrape, and an unreadable file
+// fails the scrape.
+//
 // Both values are normalised here rather than at each call site: surrounding
 // whitespace is trimmed (a token read from a file or an environment variable
 // often carries a trailing newline, which would otherwise be rejected by
@@ -56,8 +65,17 @@ func Flags() *ConnectionFlags {
 // slashes are stripped from the address, so the "%s/Path" URLs the collectors
 // build never contain an empty path segment.
 func JellyfinInfo(logger *slog.Logger) (string, string, error) {
+	token := *jellyfinToken
+	if *jellyfinTokenFile != "" {
+		content, err := os.ReadFile(*jellyfinTokenFile)
+		if err != nil {
+			return "", "", fmt.Errorf("reading jellyfin token file: %w", err)
+		}
+		token = string(content)
+	}
+
 	url := strings.TrimRight(strings.TrimSpace(*jellyfinURL), "/")
-	token := strings.TrimSpace(*jellyfinToken)
+	token = strings.TrimSpace(token)
 
 	logger.Debug("Jellyfin URL", "Value", url)
 	logger.Debug("Jellyfin token configured", "configured", token != "")
