@@ -1,1 +1,2 @@
-OPTIONS="--jellyfin.token TOKEN"
+JELLYFIN_TOKEN=TOKEN
+OPTIONS=""

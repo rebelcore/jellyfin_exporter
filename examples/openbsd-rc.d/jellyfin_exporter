@@ -3,6 +3,7 @@
 
 
 daemon="/usr/local/bin/jellyfin_exporter"
+daemon_flags="--jellyfin.token-file=/etc/jellyfin_exporter/token"
 
 . /etc/rc.d/rc.subr
 

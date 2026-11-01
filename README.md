@@ -65,7 +65,8 @@ docker run -d \
   --jellyfin.token=TOKEN
 ```
 
-For Docker compose, similar flag changes are needed.
+For Docker compose, similar flag changes are needed. Compose can pass the
+token as a secret, which it mounts as a file in `/run/secrets`.
 
 ```yaml
 ---
@@ -75,11 +76,21 @@ services:
     container_name: jellyfin_exporter
     command:
       - '--jellyfin.address=http://jellyfin:8096'
-      - '--jellyfin.token=TOKEN'
+      - '--jellyfin.token-file=/run/secrets/jellyfin_token'
+    secrets:
+      - jellyfin_token
     ports:
       - 9594:9594
     restart: unless-stopped
+
+secrets:
+  jellyfin_token:
+    file: ./jellyfin_token.txt
 ```
+
+`jellyfin_token.txt` holds the API key. Compose mounts it as it is on the
+host, keeping its owner and permissions, so make it readable by user 65534,
+for example with `sudo chown 65534 jellyfin_token.txt`.
 
 The image is built from scratch and holds only the exporter binary, so it
 has no shell: you can't `docker exec` into it, and a healthcheck can't run
