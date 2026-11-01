@@ -20,6 +20,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -189,7 +191,64 @@ func TestSystemCollectorUpdate_EmitsUpZeroWhenPingFails(t *testing.T) {
 		t.Fatalf("expected Update to report the failure")
 	}
 
-	var found bool
+	up, found := jellyfinUp(t, ch)
+	if !found {
+		t.Fatalf("expected jellyfin_up to be emitted when the server is unreachable")
+	}
+	if want, have := 0.0, up; want != have {
+		t.Fatalf("want jellyfin_up %v, have %v", want, have)
+	}
+}
+
+// TestSystemCollectorUpdate_EmitsUpZeroWhenConfigFails extends the liveness
+// contract to connection settings that stop working after startup, such as a
+// token file that has been removed: jellyfin_up must still be emitted, as 0.
+func TestSystemCollectorUpdate_EmitsUpZeroWhenConfigFails(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	path := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(path, []byte(testJellyfinToken), 0o600); err != nil {
+		t.Fatalf("writing the token file: %v", err)
+	}
+	if _, err := parseFlags("--jellyfin.address", testJellyfinURL, "--jellyfin.token-file", path); err != nil {
+		t.Fatalf("failed to parse flags: %v", err)
+	}
+	t.Cleanup(func() { setJellyfinFlags(t, testJellyfinURL, testJellyfinToken) })
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("removing the token file: %v", err)
+	}
+
+	c, err := NewSystemCollector(logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ch := make(chan prometheus.Metric, 10)
+	updateErr := c.Update(ch)
+	close(ch)
+
+	if updateErr == nil {
+		t.Fatalf("expected Update to report the failure")
+	}
+
+	up, found := jellyfinUp(t, ch)
+	if !found {
+		t.Fatalf("expected jellyfin_up to be emitted when the token file can't be read")
+	}
+	if want, have := 0.0, up; want != have {
+		t.Fatalf("want jellyfin_up %v, have %v", want, have)
+	}
+}
+
+// jellyfinUp drains ch and returns the value of the jellyfin_up metric it
+// carried, and whether it carried one.
+func jellyfinUp(t *testing.T, ch <-chan prometheus.Metric) (float64, bool) {
+	t.Helper()
+
+	var (
+		value float64
+		found bool
+	)
 	for m := range ch {
 		if !strings.Contains(m.Desc().String(), "jellyfin_up") {
 			continue
@@ -198,12 +257,7 @@ func TestSystemCollectorUpdate_EmitsUpZeroWhenPingFails(t *testing.T) {
 		if err := m.Write(&dm); err != nil {
 			t.Fatalf("write metric: %v", err)
 		}
-		if want, have := 0.0, dm.GetGauge().GetValue(); want != have {
-			t.Fatalf("want jellyfin_up %v, have %v", want, have)
-		}
-		found = true
+		value, found = dm.GetGauge().GetValue(), true
 	}
-	if !found {
-		t.Fatalf("expected jellyfin_up to be emitted when the server is unreachable")
-	}
+	return value, found
 }

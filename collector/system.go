@@ -107,12 +107,15 @@ func getSystemInfo(jellyfinURL, jellyfinToken string) (*jellyfinSystemInfo, erro
 //
 // jellyfin_up is the liveness signal operators alert on, so it is always
 // emitted: an unreachable or erroring server is the 0 case, not a missing
-// series. It is therefore sent before the /System/Info lookup, whose failure
-// must not discard an already-known liveness value.
+// series, and so is a server the exporter can't query because its connection
+// settings are unusable, such as a token file that can no longer be read. It
+// is therefore sent before the /System/Info lookup, whose failure must not
+// discard an already-known liveness value.
 func (c *systemCollector) Update(ch chan<- prometheus.Metric) error {
 	jellyfinURL, jellyfinToken, err := config.JellyfinInfo(c.logger)
 	if err != nil {
 		c.logger.Error("Failed to get Jellyfin config", "error", err)
+		ch <- prometheus.MustNewConstMetric(c.systemUp, prometheus.GaugeValue, 0)
 		return err
 	}
 
