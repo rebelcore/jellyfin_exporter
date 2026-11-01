@@ -28,8 +28,8 @@ See the `--help` output for more options.
 Releases are signed and reproducible. To check a download, an image or a
 tag, see [Verifying releases](docs/verifying-releases.md).
 
-The flag `--jellyfin.token` is required. You can generate an API
-Key in the Jellyfin admin dashboard.
+Either `--jellyfin.token` or `--jellyfin.token-file` (see below) is required.
+You can generate an API Key in the Jellyfin admin dashboard.
 
 If you want to use ENV based flags you can use the following.
 
@@ -37,6 +37,14 @@ If you want to use ENV based flags you can use the following.
 JELLYFIN_ADDRESS=http://localhost:8096
 JELLYFIN_TOKEN=TOKEN
 ```
+
+Instead of the token itself, `--jellyfin.token-file` (`JELLYFIN_TOKEN_FILE`)
+takes the path of a file that holds it, such as a Docker or Kubernetes
+secret. This keeps the token out of the process arguments and environment.
+The exporter won't start if it can't read the file or the file is empty.
+Once running, it reads the file again on every scrape, so a rotated token
+takes effect without a restart. In the container image the exporter runs as
+user 65534, so that user needs read access to the file.
 
 ### Ansible
 
@@ -57,7 +65,8 @@ docker run -d \
   --jellyfin.token=TOKEN
 ```
 
-For Docker compose, similar flag changes are needed.
+For Docker compose, similar flag changes are needed. Compose can pass the
+token as a secret, which it mounts as a file in `/run/secrets`.
 
 ```yaml
 ---
@@ -67,11 +76,21 @@ services:
     container_name: jellyfin_exporter
     command:
       - '--jellyfin.address=http://jellyfin:8096'
-      - '--jellyfin.token=TOKEN'
+      - '--jellyfin.token-file=/run/secrets/jellyfin_token'
+    secrets:
+      - jellyfin_token
     ports:
       - 9594:9594
     restart: unless-stopped
+
+secrets:
+  jellyfin_token:
+    file: ./jellyfin_token.txt
 ```
+
+`jellyfin_token.txt` holds the API key. Compose mounts it as it is on the
+host, keeping its owner and permissions, so make it readable by user 65534,
+for example with `sudo chown 65534 jellyfin_token.txt`.
 
 The image is built from scratch and holds only the exporter binary, so it
 has no shell: you can't `docker exec` into it, and a healthcheck can't run

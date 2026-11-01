@@ -22,6 +22,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"slices"
@@ -129,7 +130,7 @@ func restoreTestFlags(t *testing.T) {
 // environment the tests run in cannot leak into what they parse.
 func clearFlagEnv(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"JELLYFIN_ADDRESS", "JELLYFIN_TOKEN", "GOMAXPROCS"} {
+	for _, name := range []string{"JELLYFIN_ADDRESS", "JELLYFIN_TOKEN", "JELLYFIN_TOKEN_FILE", "GOMAXPROCS"} {
 		t.Setenv(name, "")
 	}
 }
@@ -803,11 +804,79 @@ func TestParseFlags_Environment(t *testing.T) {
 
 func TestParseFlags_RequiresToken(t *testing.T) {
 	restoreTestFlags(t)
-	// An empty JELLYFIN_TOKEN must not satisfy the required flag.
+	// An empty JELLYFIN_TOKEN must not count as a token.
 	clearFlagEnv(t)
 
-	if _, err := parseTestFlags(); err == nil || !strings.Contains(err.Error(), "--jellyfin.token") {
-		t.Fatalf("want a missing --jellyfin.token error, have %v", err)
+	want := "missing flags: --jellyfin.token=TOKEN or --jellyfin.token-file=FILE"
+	if _, err := parseTestFlags(); err == nil || err.Error() != want {
+		t.Fatalf("want error %q, have %v", want, err)
+	}
+}
+
+func TestParseFlags_TokenFile(t *testing.T) {
+	restoreTestFlags(t)
+	clearFlagEnv(t)
+
+	path := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(path, []byte("file-token\n"), 0o600); err != nil {
+		t.Fatalf("writing the token file: %v", err)
+	}
+
+	for name, setup := range map[string]func(t *testing.T) []string{
+		"flag":        func(*testing.T) []string { return []string{"--jellyfin.token-file", path} },
+		"environment": func(t *testing.T) []string { t.Setenv("JELLYFIN_TOKEN_FILE", path); return nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseTestFlags(setup(t)...); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			_, token, err := config.JellyfinInfo(slog.New(slog.NewTextHandler(io.Discard, nil)))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if want, have := "file-token", token; want != have {
+				t.Fatalf("want token %q from the file, have %q", want, have)
+			}
+		})
+	}
+}
+
+func TestParseFlags_RejectsTokenWithTokenFile(t *testing.T) {
+	restoreTestFlags(t)
+	clearFlagEnv(t)
+
+	path := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(path, []byte("file-token"), 0o600); err != nil {
+		t.Fatalf("writing the token file: %v", err)
+	}
+
+	if _, err := parseTestFlags("--jellyfin.token", "token", "--jellyfin.token-file", path); err == nil {
+		t.Fatalf("want an error for --jellyfin.token with --jellyfin.token-file")
+	}
+}
+
+func TestParseFlags_RejectsMissingTokenFile(t *testing.T) {
+	restoreTestFlags(t)
+	clearFlagEnv(t)
+
+	if _, err := parseTestFlags("--jellyfin.token-file", filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Fatalf("want an error for a --jellyfin.token-file that does not exist")
+	}
+}
+
+// TestParseFlags_RejectsEmptyTokenFile checks that the token file is read at
+// startup, so an empty one stops the exporter instead of failing every scrape.
+func TestParseFlags_RejectsEmptyTokenFile(t *testing.T) {
+	restoreTestFlags(t)
+	clearFlagEnv(t)
+
+	path := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(path, []byte("\n"), 0o600); err != nil {
+		t.Fatalf("writing the token file: %v", err)
+	}
+
+	if _, err := parseTestFlags("--jellyfin.token-file", path); err == nil || !strings.Contains(err.Error(), "is empty") {
+		t.Fatalf("want an empty token file error, have %v", err)
 	}
 }
 
@@ -906,7 +975,7 @@ func TestParseFlags_HelpListsEveryFlag(t *testing.T) {
 		"--web.telemetry-path", "--[no-]web.disable-exporter-metrics", "--web.max-requests",
 		"--[no-]collector.disable-defaults", "--runtime.gomaxprocs", "--[no-]web.enable-pprof",
 		"--web.listen-address", "--web.config.file", "--log.level", "--log.format", "--version",
-		"--jellyfin.address", "--jellyfin.token", "--collector.activity.days",
+		"--jellyfin.address", "--jellyfin.token", "--jellyfin.token-file", "--collector.activity.days",
 	}
 	for _, name := range []string{"activity", "media", "playing", "storage", "system", "tasks", "transcoding", "users"} {
 		want = append(want, "--[no-]collector."+name)
@@ -918,6 +987,25 @@ func TestParseFlags_HelpListsEveryFlag(t *testing.T) {
 		if !strings.Contains(out.String(), flag) {
 			t.Errorf("--help does not list %s", flag)
 		}
+	}
+}
+
+// TestParseFlags_UsageLineListsNoTokenFlag guards the usage line. kong lists
+// every required flag there, so marking --jellyfin.token and
+// --jellyfin.token-file required would show both, though only one may be given.
+func TestParseFlags_UsageLineListsNoTokenFlag(t *testing.T) {
+	restoreTestFlags(t)
+
+	var out strings.Builder
+	var f flags
+	parser := newParser(&f, kong.Writers(&out, io.Discard), kong.Exit(func(int) {}))
+	if err := parseFlags(parser, []string{"--help", "--jellyfin.token", "token"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	usage, _, _ := strings.Cut(out.String(), "\n")
+	if strings.Contains(usage, "--jellyfin.token") {
+		t.Fatalf("want no token flag in the usage line, have %q", usage)
 	}
 }
 

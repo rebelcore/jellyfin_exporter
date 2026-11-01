@@ -389,13 +389,15 @@ func newParser(f *flags, options ...kong.Option) *kong.Kong {
 	return kong.Must(f, options...)
 }
 
-// parseFlags parses args with parser, then records which collectors were
-// toggled explicitly, for --collector.disable-defaults.
+// parseFlags parses args with parser and checks that a Jellyfin token was
+// given, then records which collectors were toggled explicitly, for
+// --collector.disable-defaults.
 //
 // An environment variable that is set but empty counts as unset, so its flag
 // keeps the default. kong would otherwise parse the empty value, leaving an
-// empty --jellyfin.address, satisfying the required --jellyfin.token with an
-// empty token, or failing on an empty GOMAXPROCS.
+// empty --jellyfin.address, making an empty JELLYFIN_TOKEN clash with
+// --jellyfin.token-file, or failing on an empty JELLYFIN_TOKEN_FILE or
+// GOMAXPROCS.
 func parseFlags(parser *kong.Kong, args []string) error {
 	for _, group := range parser.Model.AllFlags(false) {
 		for _, flag := range group {
@@ -411,6 +413,9 @@ func parseFlags(parser *kong.Kong, args []string) error {
 
 	ctx, err := parser.Parse(args)
 	if err != nil {
+		return err
+	}
+	if err := config.CheckToken(); err != nil {
 		return err
 	}
 	collector.MarkForcedCollectors(ctx)

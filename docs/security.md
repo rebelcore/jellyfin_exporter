@@ -34,7 +34,8 @@ vulnerability, see [SECURITY.md](../SECURITY.md).
 
 * **The token is powerful.** A Jellyfin API key grants administrator access to
   the server. Keep it in a secret store, such as a Kubernetes Secret, and limit
-  who can read the exporter's environment and configuration.
+  who can read the exporter's environment and configuration. Passed as a file
+  with `--jellyfin.token-file`, it stays out of both.
 * **Metrics contain personal data.** They include usernames, device and client
   names, client IP addresses and what each person is watching. Anyone who can
   reach the metrics endpoint can read them, so protect it with the web

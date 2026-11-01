@@ -25,17 +25,19 @@ spec:
           image: rebelcore/jellyfin-exporter:latest
           args:
             - "--jellyfin.address=http://jellyfin:8096"
-            - "--jellyfin.token=$(JELLYFIN_TOKEN)"
+            - "--jellyfin.token-file=/etc/jellyfin-exporter/token"
             - "--collector.activity"
-          env:
-            - name: JELLYFIN_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: jellyfin-api-key
-                  key: token
+          volumeMounts:
+            - name: jellyfin-api-key
+              mountPath: /etc/jellyfin-exporter
+              readOnly: true
           ports:
             - containerPort: 9594
               name: metrics
+      volumes:
+        - name: jellyfin-api-key
+          secret:
+            secretName: jellyfin-api-key
 ---
 apiVersion: v1
 kind: Service
@@ -82,5 +84,6 @@ spec:
       interval: 15s
 ```
 
-```
-```
+The API key in the `jellyfin-api-key` Secret is mounted into the container as a file, which `--jellyfin.token-file`
+reads, so it stays out of the container's arguments and environment. The kubelet updates the file when the Secret
+changes, and the exporter reads it on every scrape, so a new key takes effect without restarting the pod.

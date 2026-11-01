@@ -2,9 +2,10 @@
 
 RETVAL=0
 PROG="jellyfin_exporter"
-EXEC="/etc/node_exporter/jellyfin_exporter"
+EXEC="/usr/sbin/jellyfin_exporter"
 LOCKFILE="/var/lock/subsys/$PROG"
-OPTIONS="--web.listen-address=:9594"
+# The token file holds the Jellyfin API key; it can be readable by root only.
+OPTIONS="--web.listen-address=:9594 --jellyfin.token-file=/etc/jellyfin_exporter/token"
 
 # Source function library.
 if [ -f /etc/rc.d/init.d/functions ]; then
