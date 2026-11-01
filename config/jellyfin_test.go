@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -169,5 +170,53 @@ func TestJellyfinInfo_UnreadableTokenFileErrors(t *testing.T) {
 
 	if _, _, err := JellyfinInfo(logger); err == nil {
 		t.Fatalf("expected an error for an unreadable token file")
+	}
+}
+
+// TestCheckToken covers the startup check that stands in for a required flag:
+// --jellyfin.token or --jellyfin.token-file must give a token, and a token file
+// must be readable and not empty.
+func TestCheckToken(t *testing.T) {
+	prevToken, prevTokenFile := *jellyfinToken, *jellyfinTokenFile
+	t.Cleanup(func() { *jellyfinToken, *jellyfinTokenFile = prevToken, prevTokenFile })
+
+	dir := t.TempDir()
+	tokenFile := filepath.Join(dir, "token")
+	if err := os.WriteFile(tokenFile, []byte("secret\n"), 0o600); err != nil {
+		t.Fatalf("writing the token file: %v", err)
+	}
+	emptyFile := filepath.Join(dir, "empty")
+	if err := os.WriteFile(emptyFile, []byte("\n"), 0o600); err != nil {
+		t.Fatalf("writing the empty token file: %v", err)
+	}
+
+	tests := []struct {
+		name      string
+		token     string
+		tokenFile string
+		wantErr   string
+	}{
+		{name: "token", token: "secret"},
+		{name: "token file", tokenFile: tokenFile},
+		{name: "neither", wantErr: "missing flags: --jellyfin.token=TOKEN or --jellyfin.token-file=FILE"},
+		{name: "whitespace-only token", token: " \t\n", wantErr: "missing flags"},
+		{name: "empty token file", tokenFile: emptyFile, wantErr: "is empty"},
+		{name: "unreadable token file", tokenFile: filepath.Join(dir, "missing"), wantErr: "reading jellyfin token file"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			*jellyfinToken, *jellyfinTokenFile = tt.token, tt.tokenFile
+
+			err := CheckToken()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("want an error containing %q, have %v", tt.wantErr, err)
+			}
+		})
 	}
 }
